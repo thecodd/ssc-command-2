@@ -89,6 +89,14 @@ A GitHub Actions workflow (`.github/workflows/phase7-runtime-gate.yml`) and a Do
 - No claim of READY. The CI gate has not run, so the decision below is unchanged.
 
 ---
+# FIRST REAL CI RUN: defects reported by the maintainer and fixed (fixes NOT yet re-validated on a runner)
+The first GitHub Actions run (reported by the maintainer; not observed from this sandbox) showed the CI environment works (PostgreSQL, scratch DB, GoTrue, PostgREST, dependencies, Playwright; migrations 001-013 passed) and exposed three real defects:
+1. **Migration 014 assertion**: it compared `p.oid::regprocedure::text` against a text allow-list. `regprocedure` text has no space after commas, prints `integer` for `int`, and depends on `search_path`, so legitimate admin RPCs such as `set_publish_status(text,uuid,publish_status_t)` never matched. Fixed at the source (`database/security/build_privileges.js`): the allow-list is resolved once with `to_regprocedure()` into an OID array and the assertion is `p.oid <> all (v_allowed)`; the same list feeds the grants. The security assertion is not weakened (it is now exact). `014_function_privileges.sql` was regenerated and a second regeneration is byte-identical. The static audit now also checks that every classified signature uses only builtin or migration-created types (custom enums are `public.`-qualified) and that 014 never compares signature text again.
+2. **TypeScript (9 errors)**: untyped cookie callbacks in `lib/supabase/server.ts` and `middleware.ts` (new shared `CookieToSet` type from `@supabase/ssr`'s `CookieOptions`), and `any` in `app/(app)/ssc/page.tsx` (typed return values `ExamRow` / `ExamOverview` in `services/ssc.ts`). Runtime behaviour unchanged; `tsconfig` untouched. Note: earlier stub-based runs filtered TS7006/TS7031 as "stub noise"; these were real. Stubbed `tsc` is now run without that filter for the touched files.
+3. **ESLint directives**: three malformed `// eslint-disable-line rule (explanation)` comments (explanation parsed as part of the rule name). All suppressions were removed instead of repaired: `ProgressPanel` now uses a `useCallback`-stabilised `adopt` and a `sessId` dependency; `StudyFocusCard` reads the latest props through a ref so its snapshot effect depends only on the phase. A new checker (`npm run lint:hooks`, supporting evidence) flags malformed directives and missing hook dependencies; it was verified to flag the original bug.
+**Re-validation status: NOT DONE.** The real `typecheck`, `lint`, `build`, SQL suites and browser gate have not been re-run (no dependencies, no PostgreSQL here). The next real GitHub run decides.
+
+---
 # PART B: EXTERNAL RUNTIME GATE (still required; none of it has been done)
 
 Run on a machine with PostgreSQL 15+ or the Supabase CLI, Node 18+, `psql`, and registry access. Full guide: `docs/VALIDATION_KIT.md`.

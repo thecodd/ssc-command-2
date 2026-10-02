@@ -134,6 +134,7 @@ await realBrowser();
 if (!flag("--skip-supporting")) {
   const sup = (id, title, fn) => { const r = fn(); R.add({ id, title, category: "SUPPORTING", mandatory: false, ...r }); };
   sup("S2", "Static SQL audit over migrations 001-014 (NOT execution)", () => { const r = run(process.execPath, ["database/security/static_audit.cjs"]); const lf = log("static_audit.log", r.stdout + r.stderr); return { status: r.code === 0 ? STATUS.PASS : STATUS.FAIL, detail: firstLine(r.stdout) || firstLine(r.stderr), log: lf }; });
+  sup("S7", "Hook dependency + eslint-directive check (approximation of react-hooks/exhaustive-deps; the real lint is stage 9)", () => { const r = run(process.execPath, ["scripts/lint/hook_deps_check.cjs"]); return { status: r.code === 0 ? STATUS.PASS : STATUS.FAIL, detail: firstLine(r.stdout) || firstLine(r.stderr) }; });
   sup("S3", "014_function_privileges.sql + matrix doc regenerate byte-identically", () => {
     const f1 = path.join(root, "database/migrations/014_function_privileges.sql"), f2 = path.join(root, "docs/SECURITY_FUNCTION_MATRIX.md"); const b = [fs.readFileSync(f1, "utf8"), fs.readFileSync(f2, "utf8")];
     const r = run(process.execPath, ["database/security/build_privileges.js"]); const a = [fs.readFileSync(f1, "utf8"), fs.readFileSync(f2, "utf8")];

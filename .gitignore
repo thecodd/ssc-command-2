@@ -5,3 +5,4 @@ node_modules
 # validation kit output (generated)
 reports/
 tests/browser/dist/
+*.tsbuildinfo

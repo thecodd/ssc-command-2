@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import type { CookieToSet } from "@/lib/supabase/cookies";
 
 // Pages: signed-out users are redirected to /login. API routes: signed-out callers get 401 JSON (never an HTML redirect).
 export async function middleware(req: NextRequest) {
@@ -8,7 +9,7 @@ export async function middleware(req: NextRequest) {
   const res = NextResponse.next({ request: req });
   const sb = createServerClient(url, key, { cookies: {
     getAll: () => req.cookies.getAll(),
-    setAll: (list) => { list.forEach(({ name, value, options }) => res.cookies.set(name, value, options)); },
+    setAll: (list: CookieToSet[]) => { list.forEach(({ name, value, options }) => res.cookies.set(name, value, options)); },
   }});
   const { data: { user } } = await sb.auth.getUser();
   const path = req.nextUrl.pathname;

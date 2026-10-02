@@ -128,4 +128,22 @@ export default async function () {
     (function walk(d: string) { for (const f of fs.readdirSync(d)) { if (["node_modules", ".next", ".git", "tests", "database", "docs"].includes(f)) continue; const p = path.join(d, f); if (fs.statSync(p).isDirectory()) walk(p); else if (/\.tsx?$/.test(f) && /@\/tests\//.test(fs.readFileSync(p, "utf8"))) importers.push(path.relative(root, p)); } })(root);
     assert.deepEqual(importers.sort(), ["app/(focus)/dev/revision-preview/page.dev.tsx", "app/(focus)/dev/study-preview/page.dev.tsx"]);
   });
+  await t("014: assertions compare RESOLVED OIDs, not regprocedure text (the first real run failed on text normalisation)", () => {
+    const g = strip(mig("014_function_privileges.sql"));
+    assert.doesNotMatch(g, /regprocedure\s*::\s*text/i); assert.doesNotMatch(g, /<>\s*all\s*\(\s*array\[/i); assert.match(g, /p\.oid\s*<>\s*all\s*\(\s*v_allowed\s*\)/);
+    assert.match(g, /v_sig := to_regprocedure\(v_name\);[\s\S]*v_allowed := v_allowed \|\| v_sig::oid;/); assert.match(g, /allow-list entry not found/);
+  });
+  await t("014: the admin RPCs (set_publish_status, verify_source, set_exam_official, import_*) are on the SAME allow-list the grants use, enum types schema-qualified", () => {
+    const g = mig("014_function_privileges.sql"); const lists = [...g.matchAll(/array\[([\s\S]*?)\]\s*loop/g)].map((m) => [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]));
+    const both = lists.filter((l) => l.includes("public.revision_queue()")), grant = both[0];
+    assert.equal(both.length, 2, "one list for the GRANTS and one for the ASSERTION"); assert.deepEqual(both[0], both[1], "the assertion must resolve exactly the list that was granted");
+    for (const s of ["public.set_publish_status(text, uuid, public.publish_status_t)", "public.verify_source(uuid, boolean)", "public.set_exam_official(uuid, boolean)", "public.import_create_run(text, text, jsonb, boolean)", "public.import_apply_run(uuid)"]) assert.ok(grant!.includes(s), s);
+    for (const s of grant!) for (const m of s.matchAll(/\b(entity_t|publish_status_t|difficulty_t|session_state_t)\b/g)) assert.ok(s.includes("public." + m[1]), `${s}: ${m[1]} is not schema-qualified`);
+  });
+  await t("014: the generator is idempotent (a second regeneration is byte-identical) and the static audit (types, OIDs, allow-list) is clean", () => {
+    const cp = require("child_process"), f = path.join(root, "database/migrations/014_function_privileges.sql"), d = path.join(root, "docs/SECURITY_FUNCTION_MATRIX.md");
+    cp.execFileSync("node", [path.join(root, "database/security/build_privileges.js")], { cwd: root, stdio: "pipe" }); const a = [fs.readFileSync(f, "utf8"), fs.readFileSync(d, "utf8")];
+    cp.execFileSync("node", [path.join(root, "database/security/build_privileges.js")], { cwd: root, stdio: "pipe" }); assert.equal(fs.readFileSync(f, "utf8") === a[0] && fs.readFileSync(d, "utf8") === a[1], true);
+    const r = cp.spawnSync("node", [path.join(root, "database/security/static_audit.cjs")], { cwd: root, encoding: "utf8" }); assert.equal(r.status, 0, r.stdout);
+  });
 }

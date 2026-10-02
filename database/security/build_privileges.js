@@ -84,19 +84,26 @@ ${list(by("service"))}
 end $$;
 
 -- 3. assertions
-do $$ declare r record; n int; begin
+-- The allow-list is compared as RESOLVED OIDs (to_regprocedure), never as text: regprocedure::text depends on search_path and on type aliases
+-- (it prints "set_publish_status(text,uuid,publish_status_t)" with no spaces, "integer" for int, schema-qualified enums when public is not on the path).
+do $$ declare r record; n int; v_name text; v_sig regprocedure; v_allowed oid[] := '{}'; begin
+  foreach v_name in array array[
+${list(clients)}
+  ] loop
+    v_sig := to_regprocedure(v_name);
+    if v_sig is null then raise exception '014: allow-list entry not found: %', v_name; end if;
+    v_allowed := v_allowed || v_sig::oid;
+  end loop;
   -- nothing of ours is executable by anon (or by the PUBLIC pseudo-role)
   for r in select p.oid::regprocedure as sig from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
             where ns.nspname = 'public' and p.prokind = 'f' and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
               and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('public', p.oid, 'execute')) loop
     raise exception '014: % is still executable by anon/PUBLIC', r.sig;
   end loop;
-  -- no SECURITY DEFINER function is executable by authenticated unless it is on the client allow-list
+  -- no SECURITY DEFINER function is executable by authenticated unless it is on the client allow-list (compared by OID)
   for r in select p.oid::regprocedure as sig from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
             where ns.nspname = 'public' and p.prokind = 'f' and p.prosecdef and has_function_privilege('authenticated', p.oid, 'execute')
-              and p.oid::regprocedure::text <> all (array[
-${list(clients.map((s) => s.replace(/^public\./, "")))}
-  ]) loop
+              and p.oid <> all (v_allowed) loop
     raise exception '014: SECURITY DEFINER function % is executable by authenticated but is not on the allow-list', r.sig;
   end loop;
   -- every SECURITY DEFINER function pins its search_path

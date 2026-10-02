@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { Play, Pause, Square, Check, RefreshCw } from "lucide-react";
 import { Ring } from "@/components/ui/Ring";
 import { Badge } from "@/components/ui/Badge";
@@ -20,17 +20,19 @@ export function ProgressPanel({ type, id, path, progress, mastery }: { type: Ent
   const base = useRef({ elapsed: 0, at: 0 });
   useEffect(() => setSlider(progress.completion), [progress.completion]);
 
-  const adopt = (s: StudySession | null) => {
+  const adopt = useCallback((s: StudySession | null) => {
     if (s && s.entity_type === type && s.entity_id === id && (s.state === "active" || s.state === "paused")) { base.current = { elapsed: s.elapsed_seconds, at: Date.now() }; setSess(s); } else setSess(null);
-  };
-  useEffect(() => { studyRecoverAction().then((r) => r.ok && adopt(r.data)); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps (refresh-safe: re-adopt an open session)
+  }, [type, id]);
+  // refresh-safe: re-adopt an open session when the page (re)mounts
+  useEffect(() => { studyRecoverAction().then((r) => r.ok && adopt(r.data)); }, [adopt]);
   const active = sess?.state === "active";
   useEffect(() => { if (!active) return; const t = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(t); }, [active]);
+  const sessId = sess?.id;
   useEffect(() => {
-    if (!active || !sess) return;
-    const t = setInterval(() => studyHeartbeatAction(sess.id).then((r) => { if (r.ok) { if (r.data.state === "active" || r.data.state === "paused") adopt(r.data); else setSess(null); } }), LEARNING.heartbeatSeconds * 1000);
+    if (!active || !sessId) return;
+    const t = setInterval(() => studyHeartbeatAction(sessId).then((r) => { if (r.ok) { if (r.data.state === "active" || r.data.state === "paused") adopt(r.data); else setSess(null); } }), LEARNING.heartbeatSeconds * 1000);
     return () => clearInterval(t);
-  }, [active, sess?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, sessId, adopt]);
   void tick;
   const shown = sess ? base.current.elapsed + (active ? Math.floor((Date.now() - base.current.at) / 1000) : 0) : 0;
 

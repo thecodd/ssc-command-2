@@ -9,14 +9,14 @@ import { Bar } from "@/components/ui/Ring";
 export default async function Ssc({ searchParams: sp }: { searchParams: { exam?: string; tier?: string } }) {
   const exams = await getExams();
   if (!exams.length) return <div><PageHeader title="SSC CGL" /><EmptyState icon={GraduationCap} title="No SSC syllabus yet" hint="Import a verified exam version to start drilling into subjects and topics." actions={[{ href: "/admin/import", label: "Import Curriculum" }, { href: "/syllabus/new", label: "Add Topic" }]} /></div>;
-  const exam: any = exams.find((e: any) => e.id === sp.exam) ?? exams[0];
+  const exam = exams.find((e) => e.id === sp.exam) ?? exams[0];
   const ov = await getExamOverview(exam.id, sp.tier);
   const chip = (on: boolean) => `chip min-h-[36px] whitespace-nowrap px-4 text-sm ${on ? "chip-on" : ""}`;
   return (
     <div>
       <PageHeader title="SSC CGL" subtitle="Pick a subject. Drill into topics. Know what to do next." />
       <div className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0" aria-label="Exam version">
-        {exams.map((e: any) => <Link key={e.id} href={`/ssc?exam=${e.id}`} aria-current={e.id === exam.id ? "page" : undefined} className={chip(e.id === exam.id)}>{e.name} {e.exam_version}</Link>)}
+        {exams.map((e) => <Link key={e.id} href={`/ssc?exam=${e.id}`} aria-current={e.id === exam.id ? "page" : undefined} className={chip(e.id === exam.id)}>{e.name} {e.exam_version}</Link>)}
       </div>
       <div className="mb-5 flex flex-wrap items-center gap-2">
         {exam.is_official ? <Badge tone="lime">Official syllabus</Badge> : <Badge>Unverified — not an official notification</Badge>}

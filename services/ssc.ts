@@ -7,25 +7,30 @@ import { getClock } from "./profile";
 
 const isDone = (s?: string) => s === "completed";
 
-export async function getExams() {
+export interface ExamRow { id: string; name: string; exam_version: string; is_official: boolean; notification_url: string | null }
+export interface ExamOverviewSubject { id: string; name: string; topicCount: number; percent: number }
+export interface ExamOverview { tiers: { id: string; name: string }[]; tierId: string | undefined; subjects: ExamOverviewSubject[] }
+interface OverviewTierRow { id: string; name: string; position: number | null; ssc_subjects: { id: string; name: string; position: number | null; archived: boolean | null; ssc_topics: { id: string; archived: boolean | null }[] | null }[] | null }
+
+export async function getExams(): Promise<ExamRow[]> {
   const { sb } = await getUser();
   const { data, error } = await sb.from("ssc_exams").select("id,name,exam_version,is_official,notification_url").order("exam_version", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as unknown as ExamRow[];
 }
 
-export async function getExamOverview(examId: string, tierId?: string) {
+export async function getExamOverview(examId: string, tierId?: string): Promise<ExamOverview> {
   const { sb, user } = await getUser();
   const { data, error } = await sb.from("ssc_tiers").select("id,name,position,ssc_subjects(id,name,position,archived,ssc_topics(id,archived))").eq("exam_id", examId).order("position");
   if (error) throw error;
-  const tiers = data ?? [];
-  const tier: any = tiers.find((t: any) => t.id === tierId) ?? tiers[0] ?? null;
+  const tiers = (data ?? []) as unknown as OverviewTierRow[];
+  const tier = tiers.find((t) => t.id === tierId) ?? tiers[0] ?? null;
   const pm = user ? await getProgressMap(sb, user.id, "ssc_topic") : new Map();
-  const subjects = (tier?.ssc_subjects ?? []).filter((s: any) => !s.archived).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)).map((s: any) => {
-    const topics = (s.ssc_topics ?? []).filter((t: any) => !t.archived);
-    return { id: s.id, name: s.name, topicCount: topics.length, percent: pct(topics.filter((t: any) => isDone(pm.get(t.id)?.status)).length, topics.length) };
+  const subjects: ExamOverviewSubject[] = (tier?.ssc_subjects ?? []).filter((s) => !s.archived).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map((s) => {
+    const topics = (s.ssc_topics ?? []).filter((t) => !t.archived);
+    return { id: s.id, name: s.name, topicCount: topics.length, percent: pct(topics.filter((t) => isDone(pm.get(t.id)?.status)).length, topics.length) };
   });
-  return { tiers: tiers.map((t: any) => ({ id: t.id, name: t.name })), tierId: tier?.id as string | undefined, subjects };
+  return { tiers: tiers.map((t) => ({ id: t.id, name: t.name })), tierId: tier?.id, subjects };
 }
 
 export async function getSubjectDetail(id: string) {

@@ -52,7 +52,11 @@ export function StudyFocusCard(p: FocusCardProps) {
   const { state, clearEnded, progress, pendingKeys } = useStudy();
   const prev = useRef(state.phase);
   const before = useRef<{ completion: number; confidence: number | null } | null>(null);
-  useEffect(() => { if (prev.current === "idle" && state.phase === "running") before.current = { completion: p.completion, confidence: p.confidence }; prev.current = state.phase; }, [state.phase]); // eslint-disable-line react-hooks/exhaustive-deps (snapshot at the moment a session starts here)
+  // Snapshot "progress before" at the moment a session starts here. The latest props live in a ref (updated by the first effect of every commit, so the
+  // second effect always sees the props of the commit in which the phase changed); the snapshot effect therefore depends only on the phase.
+  const latest = useRef({ completion: p.completion, confidence: p.confidence });
+  useEffect(() => { latest.current = { completion: p.completion, confidence: p.confidence }; });
+  useEffect(() => { if (prev.current === "idle" && state.phase === "running") before.current = { ...latest.current }; prev.current = state.phase; }, [state.phase]);
 
   const { entityTitle, confidence, revisionLabel, canSchedule, ...input } = p;
   const step = nextStep({ ...input, phase: state.phase });

@@ -57,6 +57,25 @@ for (const f of files) {
   for (const m of outsideDo.matchAll(/alter\s+table\s+(?:public\.)?(\w+)\s+add\s+(?!column\s+if not exists)(column|constraint)\s+(\w+)/gi)) P(`${f} claims to be re-runnable but has: alter table ${m[1]} add ${m[2]} ${m[3]} unguarded`);
   for (const m of outsideDo.matchAll(/create\s+type\s+(?:public\.)?(\w+)/gi)) P(`${f} claims to be re-runnable but has an unguarded create type ${m[1]}`);
 }
+// 6b. every type in every classified signature must be a builtin or a type some migration creates, so `to_regprocedure(public.<type>)` can resolve it (a custom enum must be schema-qualified)
+{
+  const BUILTIN = new Set(["int", "integer", "bigint", "smallint", "text", "uuid", "date", "boolean", "bool", "numeric", "jsonb", "json", "timestamptz", "timestamp", "double precision", "real"]);
+  const custom = new Set([...all.matchAll(/create\s+type\s+(?:public\.)?(\w+)/gi)].map((m) => m[1])), rowTypes = new Set(Object.keys(tables));   // table row types (e.g. public.study_sessions) are valid composite types
+  const { qual } = require("./build_privileges.js");
+  for (const f of fns) for (const t of f.types) { const base = t.trim().replace(/^public\./, "").replace(/\[\]$/, ""); if (!BUILTIN.has(base.toLowerCase()) && !custom.has(base) && !rowTypes.has(base)) P(`${f.name}: parameter type "${t}" is neither a builtin nor created by a migration (to_regprocedure would not resolve it)`); else if (custom.has(base) && !/^public\./.test(qual(t))) P(`${f.name}: custom type ${base} is not schema-qualified in the generated signature`); }
+  info.push(`custom types in signatures: ${[...new Set(fns.flatMap((f) => f.types).map((t) => t.trim().replace(/^public\./, "").replace(/\[\]$/, "")).filter((t) => custom.has(t)))].join(", ")}`);
+}
+// 6c. 014's assertions must compare resolved OIDs, never regprocedure TEXT (text depends on search_path, type aliases and spacing)
+{
+  const g = strip(fs.readFileSync(path.join(dir, "014_function_privileges.sql"), "utf8"));
+  if (/regprocedure\s*::\s*text|::regprocedure::text|sig\s*<>\s*all|<>\s*all\s*\(\s*array\[/i.test(g)) P("014 compares regprocedure TEXT against an allow-list array (fragile): compare to_regprocedure() OIDs");
+  if (!/\bp\.oid\s*<>\s*all\s*\(\s*v_allowed\s*\)/.test(g)) P("014 assertion no longer compares p.oid against the resolved allow-list (v_allowed)");
+  const arrays = [...g.matchAll(/array\[([\s\S]*?)\]\s*loop/g)].map((m) => [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]));
+  const withQueue = arrays.filter((a) => a.includes("public.revision_queue()")), grant = withQueue[0];
+  if (withQueue.length !== 2 || JSON.stringify(withQueue[0]) !== JSON.stringify(withQueue[1])) P("014: the GRANT allow-list and the ASSERTION allow-list must both exist and be identical");
+  if (!grant) P("014: cannot find the client allow-list arrays");
+  else { for (const f of fns.filter((f) => AUTH.has(matrix[f.name].cls))) { const s = `public.${f.name}(${f.types.map(require("./build_privileges.js").qual).join(", ")})`; if (!grant.includes(s)) P(`014 allow-list is missing ${s}`); } if (!grant.includes("public.set_publish_status(text, uuid, public.publish_status_t)")) P("014 allow-list lost set_publish_status(text, uuid, public.publish_status_t)"); }
+}
 // 7. inventories for human review
 const cnt = (re) => (all.match(re) || []).length;
 info.push(`functions: ${fns.length} (${fns.filter((f) => f.sd).length} SECURITY DEFINER, ${fns.filter((f) => f.sd && !f.pinned).length} without pinned search_path)`);

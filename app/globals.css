@@ -1,0 +1,17 @@
+@tailwind base; @tailwind components; @tailwind utilities;
+:root { color-scheme: dark; }
+html, body { background: #09090B; color: #FAFAFA; }
+body { -webkit-tap-highlight-color: transparent; padding-bottom: env(safe-area-inset-bottom); }
+:focus-visible { outline: 2px solid #B8FF3D; outline-offset: 2px; border-radius: 10px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@layer components {
+  .card { @apply rounded-card border border-line bg-surface; }
+  .chip { @apply inline-flex items-center rounded-full border border-line px-3 py-1 text-xs text-sub; }
+  .chip-on { @apply border-lime/50 bg-lime-dim text-lime; }
+  .btn { @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-ctl px-4 text-sm font-medium transition; }
+  .btn-primary { @apply btn bg-lime text-black hover:brightness-95; }
+  .btn-ghost { @apply btn border border-line text-ink hover:bg-raised; }
+}
+.skeleton { background: linear-gradient(90deg,#18181B,#222226,#18181B); background-size: 200% 100%; animation: sh 1.4s infinite; }
+@keyframes sh { to { background-position: -200% 0; } }
+.no-scrollbar { scrollbar-width: none; } .no-scrollbar::-webkit-scrollbar { display: none; }

@@ -1,0 +1,42 @@
+{
+  "name": "cgl-command",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test:study": "node tests/study/run.js",
+    "audit:study": "node tests/study/audit.js",
+    "validate:phase7": "node scripts/validate_phase7.mjs",
+    "validate:sql-build": "node scripts/validate/sqlbuild.mjs",
+    "validate:sql-check": "node scripts/validate/sqlbuild.mjs --check",
+    "validate:static-sql": "node database/security/static_audit.cjs",
+    "test:kit": "node --test tests/kit/kit.test.mjs tests/kit/ci.test.mjs",
+    "test:fixture-smoke": "node tests/browser/build.js && node tests/browser/gen.js && python3 tests/browser/run.py",
+    "e2e:real": "node tests/e2e/real_routes.mjs"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.45.0",
+    "lucide-react": "^0.383.0",
+    "next": "14.2.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.15",
+    "playwright": "^1.56.0",
+    "axe-core": "^4.10.0"
+  }
+}

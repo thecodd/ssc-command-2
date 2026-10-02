@@ -1,0 +1,147 @@
+# Phase 7 RUNTIME GATE. Validation only: it provisions a clean PostgreSQL 15 + GoTrue + PostgREST stack, then runs the repository's validation kit,
+# which is the single source of truth for every stage (migrations, SQL suites, typecheck, lint, build, real browser, accessibility).
+# The job succeeds ONLY if the kit prints "READY FOR PHASE 8". Any FAIL / BLOCKED / NOT RUN in a mandatory stage keeps it red. No secrets are needed.
+# Documentation: docs/CI_PHASE7_GATE.md
+name: Phase 7 runtime gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase7-runtime-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-gate:
+    name: Phase 7 runtime gate (PostgreSQL 15, real build, real browser)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # Ephemeral and disposable: the database lives only for this job. The value is masked in logs and scrubbed from artifacts.
+      PG_PASSWORD: ci_pg_${{ github.run_id }}_${{ github.run_attempt }}
+      DB_NAME: cgl_validation_scratch
+      NEXT_TELEMETRY_DISABLED: "1"
+      CI: "true"
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_pg_${{ github.run_id }}_${{ github.run_attempt }}
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate ephemeral configuration (secrets are masked, never printed)
+        run: node scripts/ci/make_env.mjs --github
+
+      - name: Ensure the PostgreSQL client (psql)
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y postgresql-client; fi
+          psql --version
+
+      - name: Wait for the PostgreSQL service container
+        run: |
+          node scripts/ci/wait_for.mjs tcp://127.0.0.1:5432 90
+          pg_isready -h 127.0.0.1 -p 5432 -U postgres
+
+      - name: Create the scratch database (cgl_validation_scratch) and its roles
+        run: node scripts/ci/prepare_database.mjs
+
+      - name: Start GoTrue (auth) against the scratch database
+        run: |
+          mkdir -p reports/ci
+          docker run -d --name gotrue --network host \
+            -e GOTRUE_API_HOST=0.0.0.0 -e GOTRUE_API_PORT=9999 \
+            -e API_EXTERNAL_URL="$API_PUBLIC_URL" -e GOTRUE_SITE_URL="http://127.0.0.1:$E2E_PORT" -e GOTRUE_URI_ALLOW_LIST="*" \
+            -e GOTRUE_DB_DRIVER=postgres \
+            -e GOTRUE_DB_DATABASE_URL="postgres://supabase_auth_admin:${AUTH_ADMIN_PASSWORD}@127.0.0.1:5432/${DB_NAME}" \
+            -e GOTRUE_JWT_SECRET="$JWT_SECRET" -e GOTRUE_JWT_EXP=3600 -e GOTRUE_JWT_AUD=authenticated -e GOTRUE_JWT_DEFAULT_GROUP_NAME=authenticated \
+            -e GOTRUE_DISABLE_SIGNUP=false -e GOTRUE_EXTERNAL_EMAIL_ENABLED=true -e GOTRUE_MAILER_AUTOCONFIRM=true -e GOTRUE_LOG_LEVEL=info \
+            supabase/gotrue:v2.158.1
+
+      - name: Wait for GoTrue (it migrates the auth schema on start) and apply the auth compatibility SQL
+        run: |
+          node scripts/ci/wait_for.mjs http://127.0.0.1:9999/health 180
+          psql "$DATABASE_URL" -X -q -v ON_ERROR_STOP=1 -f database/tests/ci/01_ci_auth_compat.sql
+
+      - name: Start PostgREST against the scratch database
+        run: |
+          docker run -d --name postgrest --network host \
+            -e PGRST_DB_URI="postgres://authenticator:${AUTHENTICATOR_PASSWORD}@127.0.0.1:5432/${DB_NAME}" \
+            -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon -e PGRST_JWT_SECRET="$JWT_SECRET" -e PGRST_SERVER_PORT=3000 \
+            postgrest/postgrest:v12.2.3
+          node scripts/ci/wait_for.mjs http://127.0.0.1:3000/ 120
+
+      - name: Start the API gateway (/auth/v1 -> GoTrue, /rest/v1 -> PostgREST)
+        run: |
+          nohup node scripts/ci/api_gateway.mjs > reports/ci/gateway.log 2>&1 &
+          node scripts/ci/wait_for.mjs "http://127.0.0.1:${GATEWAY_PORT}/auth/v1/health" 60
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Install Playwright Chromium (version from package.json)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the Phase 7 runtime validation kit (single source of truth)
+        run: |
+          set -o pipefail
+          mkdir -p reports/ci
+          npm run --silent validate:phase7 -- --db-url "$DATABASE_URL" --shim-auth 2>&1 | tee reports/ci/gate-output.txt
+
+      - name: Assert the final verdict line is exactly "READY FOR PHASE 8"
+        if: always()
+        run: |
+          last="$(tail -n 1 reports/ci/gate-output.txt 2>/dev/null || true)"
+          echo "final line of the validation kit: ${last:-<none>}"
+          test "$last" = "READY FOR PHASE 8"
+
+      - name: Collect service logs
+        if: always()
+        run: |
+          mkdir -p reports/ci
+          docker logs gotrue > reports/ci/gotrue.log 2>&1 || true
+          docker logs postgrest > reports/ci/postgrest.log 2>&1 || true
+
+      - name: Scrub ephemeral secrets from text artifacts
+        if: always()
+        run: node scripts/ci/scrub.mjs reports
+
+      - name: Publish the validation report to the job summary
+        if: always()
+        run: |
+          if [ -f reports/phase7/latest.md ]; then cat reports/phase7/latest.md >> "$GITHUB_STEP_SUMMARY"; else echo "No validation report was produced." >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload validation artifacts (report, SQL/migration/build logs, screenshots, traces, console logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase7-runtime-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            reports/phase7/
+            reports/ci/
+            package-lock.json
+          if-no-files-found: warn
+          retention-days: 14

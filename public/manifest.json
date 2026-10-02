@@ -1,0 +1,2 @@
+{ "name": "CGL Command", "short_name": "CGL Command", "description": "Your complete SSC CGL preparation system", "start_url": "/dashboard", "display": "standalone", "background_color": "#09090B", "theme_color": "#09090B",
+  "icons": [ { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }, { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" } ] }

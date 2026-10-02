@@ -1,0 +1,14 @@
+{
+  "source": { "name": "PLACEHOLDER source", "source_url": "https://example.com/replace-with-official-url", "is_verified": false },
+  "ncert": [
+    { "class": 6, "subject": "PLACEHOLDER subject", "book": "PLACEHOLDER book", "edition": "PLACEHOLDER", "academic_year": "PLACEHOLDER", "source_url": "https://example.com/replace", "chapter_number": 1, "chapter": "PLACEHOLDER chapter", "relevance": "high", "priority": "medium", "estimated_minutes": 60, "concepts": ["PLACEHOLDER concept A", "PLACEHOLDER concept B"] }
+  ],
+  "ssc": [
+    { "exam": "SSC CGL", "exam_version": "PLACEHOLDER", "is_official": false, "tier": "PLACEHOLDER tier", "subject": "PLACEHOLDER ssc subject", "topic": "PLACEHOLDER topic", "subtopic": "PLACEHOLDER subtopic", "priority": "high", "estimated_minutes": 90 }
+  ],
+  "mappings": [
+    { "class": 6, "subject": "PLACEHOLDER subject", "book": "PLACEHOLDER book", "chapter": "PLACEHOLDER chapter",
+      "exam": "SSC CGL", "exam_version": "PLACEHOLDER", "tier": "PLACEHOLDER tier", "ssc_subject": "PLACEHOLDER ssc subject", "topic": "PLACEHOLDER topic",
+      "mapping_type": "foundation", "relevance": "high", "reason": "PLACEHOLDER reason", "recommended": true }
+  ]
+}

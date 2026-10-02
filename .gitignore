@@ -1,0 +1,7 @@
+node_modules
+.next
+.env.local
+
+# validation kit output (generated)
+reports/
+tests/browser/dist/

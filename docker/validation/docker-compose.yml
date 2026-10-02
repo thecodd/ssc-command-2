@@ -1,0 +1,75 @@
+# LOCAL FALLBACK for developers with Docker (the primary gate is .github/workflows/phase7-runtime-gate.yml). See docs/CI_PHASE7_GATE.md.
+#   docker compose -f docker/validation/docker-compose.yml up --build --abort-on-container-exit --exit-code-from validate
+# Everything here is a disposable, local-only stack. The fixed values below are throwaway (not secrets); override them with env vars if you like.
+name: cgl-validation
+x-stack-env: &stack-env
+  PG_HOST: db
+  PG_PORT: "5432"
+  DB_NAME: cgl_validation_scratch
+  PG_PASSWORD: ${VALIDATION_PG_PASSWORD:-validation_local_pw_0001}
+  JWT_SECRET: ${VALIDATION_JWT_SECRET:-validation-local-jwt-secret-0123456789abcdef0123456789abcdef}
+  AUTH_ADMIN_PASSWORD: ${VALIDATION_AUTH_ADMIN_PASSWORD:-validation_auth_admin_0002}
+  AUTHENTICATOR_PASSWORD: ${VALIDATION_AUTHENTICATOR_PASSWORD:-validation_authenticator_0003}
+  GOTRUE_URL: http://gotrue:9999
+  POSTGREST_URL: http://postgrest:3000
+  API_PUBLIC_URL: http://localhost:54321
+  E2E_PORT: "3100"
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${VALIDATION_PG_PASSWORD:-validation_local_pw_0001}
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  prepare:
+    build: { context: ../.., dockerfile: docker/validation/Dockerfile }
+    entrypoint: ["bash", "-c", "cd /work && eval \"$$(node scripts/ci/make_env.mjs --export)\" && node scripts/ci/prepare_database.mjs"]
+    environment: *stack-env
+    volumes: ["../..:/work"]
+    depends_on:
+      db: { condition: service_healthy }
+  gotrue:
+    image: supabase/gotrue:v2.158.1
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
+      API_EXTERNAL_URL: http://localhost:54321
+      GOTRUE_SITE_URL: http://localhost:3100
+      GOTRUE_URI_ALLOW_LIST: "*"
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${VALIDATION_AUTH_ADMIN_PASSWORD:-validation_auth_admin_0002}@db:5432/cgl_validation_scratch
+      GOTRUE_JWT_SECRET: ${VALIDATION_JWT_SECRET:-validation-local-jwt-secret-0123456789abcdef0123456789abcdef}
+      GOTRUE_JWT_EXP: "3600"
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+    depends_on:
+      prepare: { condition: service_completed_successfully }
+  postgrest:
+    image: postgrest/postgrest:v12.2.3
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${VALIDATION_AUTHENTICATOR_PASSWORD:-validation_authenticator_0003}@db:5432/cgl_validation_scratch
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${VALIDATION_JWT_SECRET:-validation-local-jwt-secret-0123456789abcdef0123456789abcdef}
+      PGRST_SERVER_PORT: "3000"
+    depends_on:
+      prepare: { condition: service_completed_successfully }
+  validate:
+    build: { context: ../.., dockerfile: docker/validation/Dockerfile }
+    environment: *stack-env
+    volumes:
+      - ../..:/work
+      - node_modules:/work/node_modules
+    depends_on:
+      gotrue: { condition: service_started }
+      postgrest: { condition: service_started }
+volumes:
+  node_modules: {}

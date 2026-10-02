@@ -4,39 +4,56 @@
 begin;
 create temp table t_results (n serial, label text, passed boolean, detail text);
 create temp table t_runs (k text primary key, id uuid);
+create temp table t_ret (k text primary key, n bigint);                      -- results of actions run in their OWN statement (see the visibility note below)
+create temp table t_errors (n serial, uid uuid, sqlstate text, message text, stmt text);   -- every error the helpers swallowed (kept for diagnostics; the kit prints it as CGL_ERR lines)
 
--- rows visible / affected for a statement run AS a user (null = anon), or -1 if it raised.
+-- HARNESS RULES (learned from the first real runs):
+--  1. A SELECT cannot see rows written by a VOLATILE function called in the SAME statement. Never write `rows_as(<write>) >= 0 and (select <read of what it wrote>)`:
+--     run the action in its own statement (`insert into t_ret select k, rows_as(...)`) and check the resulting state in the NEXT statement.
+--  2. `select count(*) from (select stable_fn(...)) q` never EVALUATES a STABLE/IMMUTABLE function nobody reads (no error, no privilege check). rows_as therefore
+--     consumes every output column (count of the row text), so errors and EXECUTE-privilege failures of STABLE functions are really observed.
+
+-- rows visible / affected for a statement run AS a user (null = anon), or -1 if it raised (the error is recorded in t_errors).
 create or replace function pg_temp.rows_as(uid uuid, stmt text) returns bigint language plpgsql as $$
-declare n bigint;
+declare n bigint; v_state text; v_msg text;
 begin
   perform set_config('request.jwt.claims', case when uid is null then '' else json_build_object('sub', uid, 'role', 'authenticated')::text end, true);
   perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
   execute case when uid is null then 'set local role anon' else 'set local role authenticated' end;
   begin
-    if lower(ltrim(stmt)) like 'select%' then execute 'select count(*) from (' || stmt || ') q' into n;
+    if lower(ltrim(stmt)) like 'select%' then execute 'select count(t) from (select q::text as t from (' || stmt || ') q) z' into n;
     else execute stmt; get diagnostics n = row_count; end if;
-  exception when others then n := -1;
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text; n := -1;
   end;
   execute 'reset role';
   perform set_config('request.jwt.claims', '', true); perform set_config('request.jwt.claim.sub', '', true);
+  if n = -1 then insert into t_errors (uid, sqlstate, message, stmt) values (uid, v_state, v_msg, left(regexp_replace(stmt, '\s+', ' ', 'g'), 240)); end if;
   return n;
 end $$;
 -- first column of first row as text (NULL on error / no rows)
 create or replace function pg_temp.val_as(uid uuid, stmt text) returns text language plpgsql as $$
-declare v text;
+declare v text; v_state text; v_msg text; v_err boolean := false;
 begin
   perform set_config('request.jwt.claims', case when uid is null then '' else json_build_object('sub', uid, 'role', 'authenticated')::text end, true);
   perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
   execute case when uid is null then 'set local role anon' else 'set local role authenticated' end;
-  begin execute 'select x::text from (' || stmt || ') q(x) limit 1' into v; exception when others then v := null; end;
+  begin execute 'select x::text from (' || stmt || ') q(x) limit 1' into v;
+  exception when others then get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text; v := null; v_err := true; end;
   execute 'reset role';
   perform set_config('request.jwt.claims', '', true); perform set_config('request.jwt.claim.sub', '', true);
+  if v_err then insert into t_errors (uid, sqlstate, message, stmt) values (uid, v_state, v_msg, left(regexp_replace(stmt, '\s+', ' ', 'g'), 240)); end if;
   return v;
 end $$;
 -- run as the session owner (bypasses RLS, no JWT): rows affected or -1 on error
 create or replace function pg_temp.owner_try(stmt text) returns bigint language plpgsql as $$
-declare n bigint;
-begin begin execute stmt; get diagnostics n = row_count; exception when others then n := -1; end; return n; end $$;
+declare n bigint; v_state text; v_msg text;
+begin
+  begin execute stmt; get diagnostics n = row_count;
+  exception when others then get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text; n := -1; end;
+  if n = -1 then insert into t_errors (uid, sqlstate, message, stmt) values (null, v_state, v_msg, left(regexp_replace(stmt, '\s+', ' ', 'g'), 240)); end if;
+  return n;
+end $$;
 create or replace function pg_temp.check_(label text, cond boolean, detail text default null) returns void language plpgsql as $$
 begin insert into t_results (label, passed, detail) values (label, coalesce(cond, false), detail); end $$;
 create or replace function pg_temp.set_now(ts text) returns void language plpgsql as $$
@@ -197,9 +214,21 @@ select pg_temp.check_('SEC authenticated can execute exactly the allow-listed fu
 select pg_temp.check_('SEC service-only functions: service_role yes, authenticated no', (select count(*) = 0 from t_fn_expect e where e.svc_only and (has_function_privilege('authenticated', to_regprocedure(e.sig), 'execute') or not has_function_privilege('service_role', to_regprocedure(e.sig), 'execute'))));
 select pg_temp.check_('SEC every SECURITY DEFINER function pins search_path', (select count(*) = 0 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef
    and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')), (select string_agg(p.oid::regprocedure::text, '; ') from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')));
-select pg_temp.check_('SEC no client RPC accepts a time, duration, interval, due date, correctness, mastery or score argument (server-owned values)', (select count(*) = 0 from t_fn_expect e join pg_proc p on p.oid = to_regprocedure(e.sig)
-   where e.cls = 'rpc' and exists (select 1 from unnest(coalesce(p.proargnames, '{}')) a where a ~* '(^|_)(now|seconds|elapsed|duration|started|ended|is_correct|correct|mastery|interval|due|due_date|score|accuracy|streak)(_|$)')),
-  (select string_agg(e.sig, '; ') from t_fn_expect e join pg_proc p on p.oid = to_regprocedure(e.sig) where e.cls = 'rpc' and exists (select 1 from unnest(coalesce(p.proargnames, '{}')) a where a ~* '(^|_)(now|seconds|elapsed|duration|started|ended|is_correct|correct|mastery|interval|due|due_date|score|accuracy|streak)(_|$)')));
+-- INPUT arguments only. pg_proc.proargnames also lists OUT / TABLE(...) result columns (revision_queue, user_entity_signals, dashboard_summary, topic_pyq_stats ... return columns such as
+-- accuracy, seconds_spent, streak); those are outputs, not inputs, and must not be inspected here. proargmodes: NULL = all inputs; i = IN, b = INOUT, v = VARIADIC are inputs.
+create or replace function pg_temp.input_arg_names(p_oid oid) returns text[] language sql as $$
+  select coalesce(array_agg(a.n order by a.ord), '{}') from pg_proc pr, unnest(pr.proargnames) with ordinality as a(n, ord)
+   where pr.oid = p_oid and (pr.proargmodes is null or (pr.proargmodes)[a.ord] in ('i', 'b', 'v')) $$;
+select pg_temp.check_('SEC no client RPC takes an INPUT that the server must own (time, duration, interval, due date, correctness, mastery, score), except the documented telemetry below', (select count(*) = 0 from t_fn_expect e
+   cross join lateral unnest(pg_temp.input_arg_names(to_regprocedure(e.sig)::oid)) as a(name) where e.cls = 'rpc' and a.name ~* '(^|_)(now|seconds|elapsed|duration|started|ended|is_correct|correct|mastery|interval|due|due_date|score|accuracy|streak)(_|$)'
+     and not (e.name = 'submit_pyq_answer' and a.name = 'p_time_seconds')),
+  (select string_agg(e.sig || ' input ' || a.name, '; ') from t_fn_expect e cross join lateral unnest(pg_temp.input_arg_names(to_regprocedure(e.sig)::oid)) as a(name) where e.cls = 'rpc' and a.name ~* '(^|_)(now|seconds|elapsed|duration|started|ended|is_correct|correct|mastery|interval|due|due_date|score|accuracy|streak)(_|$)' and not (e.name = 'submit_pyq_answer' and a.name = 'p_time_seconds')));
+select pg_temp.check_('SEC the check inspects inputs only: revision_queue/user_entity_signals/dashboard_summary/topic_pyq_stats have RETURN columns with such names but no such INPUT', (select count(*) > 0 from pg_proc p where p.proname in ('revision_queue', 'user_entity_signals', 'dashboard_summary', 'topic_pyq_stats') and exists (select 1 from unnest(p.proargnames) n where n ~* '(^|_)(accuracy|seconds|streak|correct|attempts)(_|$)'))
+   and (select count(*) = 0 from pg_proc p cross join lateral unnest(pg_temp.input_arg_names(p.oid)) a(n) where p.proname in ('revision_queue', 'dashboard_summary') ));
+-- submit_pyq_answer(p_time_seconds) is INFORMATIONAL telemetry by design (009): stored in pyq_attempts.time_taken_seconds, clamped to [0, 7200] and to the session's own elapsed time + 5 s, and never used for grading,
+-- accuracy, mastery or scheduling. This proves the shape of that exception so it cannot silently become authoritative.
+select pg_temp.check_('SEC p_time_seconds of submit_pyq_answer is clamped server-side and used ONLY to fill time_taken_seconds', (select (length(d) - length(replace(d, 'p_time_seconds', ''))) / length('p_time_seconds') = 2 and d ~ 'least\(greatest\(coalesce\(p_time_seconds, 0\), 0\), 7200, floor\(extract\(epoch from \(v_now - s\.started_at\)\)\)::int \+ 5\)'
+    from (select pg_get_functiondef(to_regprocedure('public.submit_pyq_answer(uuid, uuid, text, int)')) as d) q));
 select pg_temp.check_('SEC every client-callable SECURITY DEFINER RPC/admin function derives identity from auth.uid()/_require_uid()/is_admin() (no caller-supplied user id)', (select count(*) = 0 from t_fn_expect e join pg_proc p on p.oid = to_regprocedure(e.sig)
    where e.cls in ('rpc', 'admin') and p.prosecdef and pg_get_functiondef(p.oid) !~ '(auth\.uid\(\)|_require_uid\(\)|is_admin\(\)|_import_admin\(\))'),
   (select string_agg(e.sig, '; ') from t_fn_expect e join pg_proc p on p.oid = to_regprocedure(e.sig) where e.cls in ('rpc', 'admin') and p.prosecdef and pg_get_functiondef(p.oid) !~ '(auth\.uid\(\)|_require_uid\(\)|is_admin\(\)|_import_admin\(\))'));
@@ -303,7 +332,8 @@ select pg_temp.check_('SEC ... nor by the owning client', (select not has_valid_
 select pg_temp.check_('SEC a client cannot create or edit OFFICIAL questions, nor questions owned by someone else', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$insert into pyqs (id, paper_id, question, options, correct_answer) values ('11111111-aaaa-4aaa-8aaa-000000000002', '45075014-9a46-5d77-9064-50eb4f553616', 'TEST SEC official', '{"A":"x","B":"y"}', 'A')$$) = -1
   and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$insert into pyqs (id, paper_id, question, options, correct_answer, owner_id) values ('11111111-aaaa-4aaa-8aaa-000000000003', '45075014-9a46-5d77-9064-50eb4f553616', 'TEST SEC for B', '{"A":"x","B":"y"}', 'A', '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed')$$) = -1
   and pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$update pyqs set question = 'hijacked' where id = '11111111-aaaa-4aaa-8aaa-000000000001'$$) in (0, -1) and (select question = 'TEST SEC keyless custom' from pyqs where id = '11111111-aaaa-4aaa-8aaa-000000000001'));
-select pg_temp.check_('SEC another user''s custom question is invisible', pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select * from pyqs where id = '11111111-aaaa-4aaa-8aaa-000000000001'$$) = 0);
+select pg_temp.check_('SEC another user''s custom question is invisible (granted columns only: SELECT * is refused by the column grants)', pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select id, question from pyqs where id = '11111111-aaaa-4aaa-8aaa-000000000001'$$) = 0
+  and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select id, question from pyqs where id = '11111111-aaaa-4aaa-8aaa-000000000001'$$) = 1 and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select * from pyqs$$) = -1);
 
 -- ============ I. admin-only curriculum mutations and privilege escalation ============
 select pg_temp.check_('SEC a normal user cannot become admin (update, insert, upsert)', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$update profiles set is_admin = true where id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4'$$) = -1
@@ -312,13 +342,21 @@ select pg_temp.check_('SEC a normal user cannot edit or create OFFICIAL curricul
   and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$insert into chapters (id, book_id, number, title) values (gen_random_uuid(), 'c199e71a-db01-5359-b575-151d904fa192', 9, 'TEST SEC official insert')$$) = -1 and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$delete from chapters where id = '17277ef4-ed1d-5063-9ec5-55919f09e403'$$) in (0, -1)
   and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$update books set status = 'archived' where id = 'c199e71a-db01-5359-b575-151d904fa192'$$) in (0, -1) and (select status = 'published' from books where id = 'c199e71a-db01-5359-b575-151d904fa192')
   and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$insert into ncert_ssc_mappings (ncert_chapter_id, ssc_topic_id, mapping_type, relevance) values ('dd124977-1642-564e-8776-86a09a5ccdbf', 'ee476413-2e8e-5c56-bbf5-b6cf5bdb2876', 'direct', 'high')$$) = -1);
-select pg_temp.check_('SEC a custom chapter must belong to its creator and cannot be reassigned', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$insert into chapters (id, book_id, number, title, owner_id) values ('11111111-bbbb-4bbb-8bbb-000000000001', 'c199e71a-db01-5359-b575-151d904fa192', 50, 'TEST SEC for B', '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed')$$) = -1
-  and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$insert into chapters (id, book_id, number, title, owner_id) values ('11111111-bbbb-4bbb-8bbb-000000000002', 'c199e71a-db01-5359-b575-151d904fa192', 51, 'TEST SEC mine', 'eda6c4d2-347b-52c8-92c4-bd428277acd4')$$) = 1
-  and pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select * from chapters where id = '11111111-bbbb-4bbb-8bbb-000000000002'$$) = 0
-  and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$update chapters set owner_id = null where id = '11111111-bbbb-4bbb-8bbb-000000000002'$$) in (0, -1) and (select owner_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' from chapters where id = '11111111-bbbb-4bbb-8bbb-000000000002'));
+-- (each action in its own statement; a SELECT cannot see rows written by a function called in the same statement)
+insert into t_ret select 'ch_forB', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$insert into chapters (id, book_id, number, title, owner_id) values ('11111111-bbbb-4bbb-8bbb-000000000001', 'c199e71a-db01-5359-b575-151d904fa192', 50, 'TEST SEC for B', '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed')$$);
+insert into t_ret select 'ch_mine', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$insert into chapters (id, book_id, number, title, owner_id) values ('11111111-bbbb-4bbb-8bbb-000000000002', 'c199e71a-db01-5359-b575-151d904fa192', 51, 'TEST SEC mine', 'eda6c4d2-347b-52c8-92c4-bd428277acd4')$$);
+select pg_temp.check_('SEC a custom chapter: creating one OWNED BY SOMEONE ELSE is refused', (select n from t_ret where k = 'ch_forB') = -1 and (select count(*) = 0 from chapters where id = '11111111-bbbb-4bbb-8bbb-000000000001'));
+select pg_temp.check_('SEC a custom chapter: creating one owned by yourself is allowed (insert policy: owner_id = auth.uid() and the book is visible)', (select n from t_ret where k = 'ch_mine') = 1, (select 'rows_as=' || n from t_ret where k = 'ch_mine'));
+select pg_temp.check_('SEC a custom chapter is invisible to other users and visible to its owner', pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select id from chapters where id = '11111111-bbbb-4bbb-8bbb-000000000002'$$) = 0
+  and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select id from chapters where id = '11111111-bbbb-4bbb-8bbb-000000000002'$$) = 1);
+insert into t_ret select 'ch_reassign', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$update chapters set owner_id = null where id = '11111111-bbbb-4bbb-8bbb-000000000002'$$);
+insert into t_ret select 'ch_steal', pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$update chapters set title = 'hijacked', owner_id = '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed' where id = '11111111-bbbb-4bbb-8bbb-000000000002'$$);
+select pg_temp.check_('SEC a custom chapter cannot be reassigned to the official catalogue (owner_id = null) nor taken over by another user, and is unchanged', (select n from t_ret where k = 'ch_reassign') in (0, -1) and (select n from t_ret where k = 'ch_steal') in (0, -1)
+  and (select owner_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and title = 'TEST SEC mine' from chapters where id = '11111111-bbbb-4bbb-8bbb-000000000002'));
 select pg_temp.check_('SEC an admin (C) CAN do what A cannot (positive control: the denials above are about authority, not a broken fixture)', pg_temp.rows_as('b2251d3c-7aed-5d3b-bb07-97b3955353d1', $$select public.verify_source('72a81bcc-e8fb-5a14-b351-3ba6b50baadd', true)$$) >= 0 and pg_temp.rows_as('b2251d3c-7aed-5d3b-bb07-97b3955353d1', $$update chapters set title = 'TEST official chapter' where id = '17277ef4-ed1d-5063-9ec5-55919f09e403'$$) = 1);
-select pg_temp.check_('SEC archived/unpublished content is not visible to a normal user but is to an admin', pg_temp.owner_try($$update books set status = 'archived' where id = 'c199e71a-db01-5359-b575-151d904fa192'$$) >= 0
-  and pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select * from global_search('TEST official chapter', 10) where kind = 'chapter'$$) = 0 and pg_temp.rows_as('b2251d3c-7aed-5d3b-bb07-97b3955353d1', $$select * from global_search('TEST official chapter', 10) where kind = 'chapter'$$) >= 1);
+select pg_temp.owner_try($$update books set status = 'archived' where id = 'c199e71a-db01-5359-b575-151d904fa192'$$);
+select pg_temp.check_('SEC archived/unpublished content is not visible to a normal user but is to an admin', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select * from global_search('TEST official chapter', 10) where kind = 'chapter'$$) = 0
+  and pg_temp.rows_as('b2251d3c-7aed-5d3b-bb07-97b3955353d1', $$select * from global_search('TEST official chapter', 10) where kind = 'chapter'$$) >= 1);
 
 -- ======================= RESULTS =======================
 select count(*) filter (where passed) as passed, count(*) filter (where not passed) as failed, count(*) as total from t_results;

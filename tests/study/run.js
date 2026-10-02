@@ -1,7 +1,11 @@
 // Plain-Node test runner (no jest/vitest: dependencies can't be installed here). Compiles TS on the fly with the globally installed TypeScript.
 // Usage: node tests/study/run.js     (set TS_PATH if typescript isn't at `npm root -g`)
 const fs = require("fs"), path = require("path"), Module = require("module");
-const ts = require(path.join(process.env.TS_PATH || require("child_process").execSync("npm root -g").toString().trim(), "typescript"));
+const ts = (() => {   // the project's own typescript first (node_modules), then TS_PATH, then a global install
+  const root = path.resolve(__dirname, "../.."), tries = [() => require.resolve("typescript", { paths: [root] }), () => path.join(process.env.TS_PATH, "typescript"), () => path.join(require("child_process").execSync("npm root -g").toString().trim(), "typescript")];
+  for (const t of tries) { try { return require(t()); } catch {} }
+  throw new Error("typescript not found: run `npm install` (project) or set TS_PATH");
+})();
 const root = path.resolve(__dirname, "../..");
 const orig = Module._resolveFilename;
 Module._resolveFilename = function (req, ...a) { if (req.startsWith("@/")) req = path.join(root, req.slice(2)); return orig.call(this, req, ...a); };

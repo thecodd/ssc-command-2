@@ -2,7 +2,11 @@
 // Approximation of eslint-plugin-react-hooks `exhaustive-deps` + a check for malformed eslint directives. Supporting evidence ONLY (the real `npm run lint` is the authority).
 // Uses the TypeScript compiler API (no stubs needed: it resolves declarations by scope, not by type). Exit 1 on any finding.
 const fs = require("fs"), path = require("path"), cp = require("child_process");
-const ts = require(path.join(process.env.TS_PATH || cp.execSync("npm root -g").toString().trim(), "typescript"));
+const ts = (() => {   // the project's own typescript first (node_modules), then TS_PATH, then a global install
+  const root = path.resolve(__dirname, "../.."), tries = [() => require.resolve("typescript", { paths: [root] }), () => path.join(process.env.TS_PATH, "typescript"), () => path.join(cp.execSync("npm root -g").toString().trim(), "typescript")];
+  for (const t of tries) { try { return require(t()); } catch {} }
+  throw new Error("typescript not found: run `npm install` (project) or set TS_PATH");
+})();
 const root = path.resolve(__dirname, "../..");
 const files = []; (function walk(d) { for (const f of fs.readdirSync(d)) { if (["node_modules", ".next", ".git", "reports", "dist"].includes(f)) continue; const p = path.join(d, f); fs.statSync(p).isDirectory() ? walk(p) : /\.(tsx?|jsx?)$/.test(f) && !/\.d\.ts$/.test(f) && files.push(p); } })(root);
 let problems = 0; const P = (f, n, m) => { problems++; console.log(`${path.relative(root, f)}:${n}: ${m}`); };

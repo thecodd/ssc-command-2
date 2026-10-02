@@ -167,17 +167,29 @@ test("prepare_database: refuses non-scratch names and missing env; creates the s
   assert.ok(prep.argv.includes("authenticator_password=<hidden>") && prep.argv.includes("auth_admin_password=<hidden>")); assert.ok(!(r.stdout + r.stderr).includes("S3cretPW") && !(r.stdout + r.stderr).includes("authpw-secret-1"));
   const f2 = fakePsql({ dbExists: true }); const r2 = node("scripts/ci/prepare_database.mjs", [], { ...base, ...f2.env }); assert.equal(r2.status, 0); assert.ok(!f2.calls().some((x) => x.sql?.startsWith("create database")), "must not re-create an existing database");
 });
-test("seed_e2e: signs the CI user up through the real auth API (apikey header), applies the seed with the user's id, and refuses non-scratch databases", async () => {
-  const reqs = []; const api = http.createServer((q, s) => { let b = ""; q.on("data", (c) => (b += c)); q.on("end", () => { reqs.push({ m: q.method, u: q.url, apikey: q.headers.apikey, b }); s.writeHead(200, { "content-type": "application/json" }); s.end("{}"); }); }), port = await listen(api);
-  const env = { NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${port}`, NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key-xyz", E2E_EMAIL: "ci@example.test", E2E_PASSWORD: "CiPassw0rd-123456", DATABASE_URL: URL_DB, SEED_API_WAIT_S: "3" };
+test("seed_e2e: signs the CI user up through the real auth API, PROBES the whole login path (CORS, password login, GoTrue, PostgREST + RLS), applies the seed, refuses non-scratch databases", async () => {
+  const mkApi = (o = {}) => { const reqs = []; const srv = http.createServer((q, s) => { let b = ""; q.on("data", (c) => (b += c)); q.on("end", () => {
+    reqs.push({ m: q.method, u: q.url, apikey: q.headers.apikey, auth: q.headers.authorization, b, origin: q.headers.origin }); const j = (code, body, h = {}) => { s.writeHead(code, { "content-type": "application/json", ...h }); s.end(JSON.stringify(body)); };
+    if (q.method === "OPTIONS") return j(o.noCors ? 204 : 204, {}, o.noCors ? {} : { "access-control-allow-origin": q.headers.origin, "access-control-allow-headers": "apikey,authorization,content-type,x-client-info" });
+    if (q.url === "/auth/v1/health") return j(200, { ok: 1 }); if (q.url === "/auth/v1/signup") return j(200, { id: "u" });
+    if (q.url.startsWith("/auth/v1/token")) return o.badLogin ? j(400, { error_code: "email_not_confirmed", msg: "Email not confirmed" }, { "access-control-allow-origin": q.headers.origin }) : j(200, { access_token: "tok-" + "x".repeat(20) }, { "access-control-allow-origin": q.headers.origin });
+    if (q.url === "/auth/v1/user") return j(200, { id: "u" }); if (q.url.startsWith("/rest/v1/profiles")) return o.noRls ? j(200, [{ id: "a" }, { id: "b" }]) : j(q.headers.authorization === "Bearer tok-xxxxxxxxxxxxxxxxxxxx" ? 200 : 401, [{ id: "a" }]);
+    if (q.url === "/rest/v1/") return j(200, {}); j(404, {}); }); }); return { srv, reqs }; };
+  const run = (api, port, extra = {}, f = fakePsql({ uid: "11111111-2222-4333-8444-555555555555" })) => new Promise((res) => cp.execFile(process.execPath, [R("scripts/ci/seed_e2e.mjs")], { cwd: root, env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${port}`, NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key-xyz", E2E_EMAIL: "ci@example.test", E2E_PASSWORD: "CiPassw0rd-123456", DATABASE_URL: URL_DB, SEED_API_WAIT_S: "3", E2E_PORT: "3100", ...f.env, ...extra } }, (e, so, se) => res({ status: e ? e.code : 0, so, se, f })));
+  const good = mkApi(), gp = await listen(good.srv);
   try {
-    const f = fakePsql({ uid: "11111111-2222-4333-8444-555555555555" }); const r = await new Promise((res) => cp.execFile(process.execPath, [R("scripts/ci/seed_e2e.mjs")], { cwd: root, env: { ...process.env, ...env, ...f.env } }, (e, so, se) => res({ status: e ? e.code : 0, so, se })));
-    assert.equal(r.status, 0, r.se); const signup = reqs.find((x) => x.u === "/auth/v1/signup"); assert.ok(signup); assert.equal(signup.m, "POST"); assert.equal(signup.apikey, "anon-key-xyz"); assert.deepEqual(JSON.parse(signup.b), { email: "ci@example.test", password: "CiPassw0rd-123456" });
-    const seed = f.calls().find((x) => x.migration === "e2e_seed.sql"); assert.ok(seed); assert.ok(seed.argv.includes("uid=11111111-2222-4333-8444-555555555555")); assert.equal(seed.url, URL_DB); assert.ok(!(r.so + r.se).includes("CiPassw0rd-123456"));
-    const bad = await new Promise((res) => cp.execFile(process.execPath, [R("scripts/ci/seed_e2e.mjs")], { cwd: root, env: { ...process.env, ...env, ...f.env, DATABASE_URL: "postgres://u:p@127.0.0.1/production" } }, (e) => res(e ? e.code : 0))); assert.equal(bad, 1);
-  } finally { api.close(); }
+    const r = await run(good, gp); assert.equal(r.status, 0, r.se); const signup = good.reqs.find((x) => x.u === "/auth/v1/signup"); assert.equal(signup.apikey, "anon-key-xyz"); assert.deepEqual(JSON.parse(signup.b), { email: "ci@example.test", password: "CiPassw0rd-123456" });
+    for (const [what, re] of [["preflight", /ok\s+CORS preflight/], ["login", /ok\s+password login.*access_token=present/], ["gotrue", /ok\s+GoTrue accepts/], ["rest", /ok\s+PostgREST reachable/], ["rls", /ok\s+PostgREST \+ RLS.*rows=1/]]) assert.match(r.so, re, what);
+    assert.ok(good.reqs.some((x) => x.u.startsWith("/rest/v1/profiles") && x.auth === "Bearer tok-xxxxxxxxxxxxxxxxxxxx")); assert.ok(good.reqs.find((x) => x.m === "OPTIONS").origin === "http://127.0.0.1:3100");
+    const seed = r.f.calls().find((x) => x.migration === "e2e_seed.sql"); assert.ok(seed.argv.includes("uid=11111111-2222-4333-8444-555555555555")); assert.equal(seed.url, URL_DB);
+    assert.ok(!(r.so + r.se).includes("CiPassw0rd-123456") && !(r.so + r.se).includes("tok-xxxx"), "password or token leaked");
+    const bad = await run(good, gp, { DATABASE_URL: "postgres://u:p@127.0.0.1/production" }); assert.equal(bad.status, 1);
+  } finally { good.srv.close(); }
+  for (const [opt, re] of [[{ badLogin: true }, /FAIL\s+password login.*email_not_confirmed.*Email not confirmed/], [{ noCors: true }, /FAIL\s+CORS preflight/], [{ noRls: true }, /FAIL\s+PostgREST \+ RLS.*rows=2/]]) {
+    const a = mkApi(opt), p = await listen(a.srv); try { const r = await run(a, p); assert.equal(r.status, 1, JSON.stringify(opt)); assert.match(r.so, re, JSON.stringify(opt)); assert.match(r.se, /auth-path probe FAILED/); assert.ok(!r.f.calls().some((x) => x.migration === "e2e_seed.sql"), "must not seed after a failed probe"); assert.ok(!(r.so + r.se).includes("CiPassw0rd-123456")); } finally { a.srv.close(); }
+  }
   const miss = cp.spawnSync(process.execPath, [R("scripts/ci/seed_e2e.mjs")], { cwd: root, encoding: "utf8", env: { ...process.env, E2E_EMAIL: "", NEXT_PUBLIC_SUPABASE_URL: "" } }); assert.equal(miss.status, 3);
-  const down = cp.spawnSync(process.execPath, [R("scripts/ci/seed_e2e.mjs")], { cwd: root, encoding: "utf8", env: { ...process.env, ...env, NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:9", SEED_API_WAIT_S: "2", ...fakePsql().env } }); assert.equal(down.status, 3); assert.match(down.stderr, /BLOCKED: auth API not reachable/);
+  const down = cp.spawnSync(process.execPath, [R("scripts/ci/seed_e2e.mjs")], { cwd: root, encoding: "utf8", env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:9", NEXT_PUBLIC_SUPABASE_ANON_KEY: "k", E2E_EMAIL: "a@b.test", E2E_PASSWORD: "CiPassw0rd-123456", DATABASE_URL: URL_DB, SEED_API_WAIT_S: "2", ...fakePsql().env } }); assert.equal(down.status, 3); assert.match(down.stderr, /BLOCKED: auth API not reachable/);
 });
 
 // ============================== CI seed SQL (static: no PostgreSQL here) ==============================

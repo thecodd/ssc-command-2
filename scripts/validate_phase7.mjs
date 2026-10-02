@@ -76,6 +76,12 @@ for (const [id, key, title] of suiteStages) {
   const r = runSuite(dbUrl, { key, file: SUITES[key].out }, log);
   R.add({ id, title, status: r.status, detail: r.detail, items: (r.items || []).map((f) => `FAILED #${f.n} ${f.label}${f.detail ? " [" + f.detail.slice(0, 200) + "]" : ""}`), log: r.log, ms: r.ms, counts: r.total !== undefined ? { passed: r.passed, failed: r.failed, total: r.total } : undefined });
 }
+// ------------------------------------------------------------------ S8 read-only runtime diagnostics (whatever the suites did): overloads, volatility, privileges, auth.uid(), triggers, policies
+if (dbReady && !flag("--skip-supporting")) {
+  const dg = run("psql", [dbUrl, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", path.join(root, "database/tests/diagnostics/runtime_diagnostics.sql")]);
+  const lf = log("diagnostics.log", `exit=${dg.code}\n${dg.stdout}\n${dg.stderr}`);
+  R.add({ id: "S8", title: "Read-only runtime diagnostics of the scratch database (logs/diagnostics.log; asserts nothing)", category: "SUPPORTING", mandatory: false, status: dg.code === 0 ? STATUS.PASS : STATUS.FAIL, detail: dg.code === 0 ? "diagnostics captured" : firstLine(dg.stderr), log: lf });
+}
 // ------------------------------------------------------------------ 7c optional E2E seed hook (CI-only fixtures; runs AFTER the SQL suites so it cannot influence them)
 {
   const id = "7c", title = "E2E seed hook (CI-only user + fixtures for the real-browser stage)";

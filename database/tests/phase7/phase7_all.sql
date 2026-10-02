@@ -4,39 +4,56 @@
 begin;
 create temp table t_results (n serial, label text, passed boolean, detail text);
 create temp table t_runs (k text primary key, id uuid);
+create temp table t_ret (k text primary key, n bigint);                      -- results of actions run in their OWN statement (see the visibility note below)
+create temp table t_errors (n serial, uid uuid, sqlstate text, message text, stmt text);   -- every error the helpers swallowed (kept for diagnostics; the kit prints it as CGL_ERR lines)
 
--- rows visible / affected for a statement run AS a user (null = anon), or -1 if it raised.
+-- HARNESS RULES (learned from the first real runs):
+--  1. A SELECT cannot see rows written by a VOLATILE function called in the SAME statement. Never write `rows_as(<write>) >= 0 and (select <read of what it wrote>)`:
+--     run the action in its own statement (`insert into t_ret select k, rows_as(...)`) and check the resulting state in the NEXT statement.
+--  2. `select count(*) from (select stable_fn(...)) q` never EVALUATES a STABLE/IMMUTABLE function nobody reads (no error, no privilege check). rows_as therefore
+--     consumes every output column (count of the row text), so errors and EXECUTE-privilege failures of STABLE functions are really observed.
+
+-- rows visible / affected for a statement run AS a user (null = anon), or -1 if it raised (the error is recorded in t_errors).
 create or replace function pg_temp.rows_as(uid uuid, stmt text) returns bigint language plpgsql as $$
-declare n bigint;
+declare n bigint; v_state text; v_msg text;
 begin
   perform set_config('request.jwt.claims', case when uid is null then '' else json_build_object('sub', uid, 'role', 'authenticated')::text end, true);
   perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
   execute case when uid is null then 'set local role anon' else 'set local role authenticated' end;
   begin
-    if lower(ltrim(stmt)) like 'select%' then execute 'select count(*) from (' || stmt || ') q' into n;
+    if lower(ltrim(stmt)) like 'select%' then execute 'select count(t) from (select q::text as t from (' || stmt || ') q) z' into n;
     else execute stmt; get diagnostics n = row_count; end if;
-  exception when others then n := -1;
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text; n := -1;
   end;
   execute 'reset role';
   perform set_config('request.jwt.claims', '', true); perform set_config('request.jwt.claim.sub', '', true);
+  if n = -1 then insert into t_errors (uid, sqlstate, message, stmt) values (uid, v_state, v_msg, left(regexp_replace(stmt, '\s+', ' ', 'g'), 240)); end if;
   return n;
 end $$;
 -- first column of first row as text (NULL on error / no rows)
 create or replace function pg_temp.val_as(uid uuid, stmt text) returns text language plpgsql as $$
-declare v text;
+declare v text; v_state text; v_msg text; v_err boolean := false;
 begin
   perform set_config('request.jwt.claims', case when uid is null then '' else json_build_object('sub', uid, 'role', 'authenticated')::text end, true);
   perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
   execute case when uid is null then 'set local role anon' else 'set local role authenticated' end;
-  begin execute 'select x::text from (' || stmt || ') q(x) limit 1' into v; exception when others then v := null; end;
+  begin execute 'select x::text from (' || stmt || ') q(x) limit 1' into v;
+  exception when others then get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text; v := null; v_err := true; end;
   execute 'reset role';
   perform set_config('request.jwt.claims', '', true); perform set_config('request.jwt.claim.sub', '', true);
+  if v_err then insert into t_errors (uid, sqlstate, message, stmt) values (uid, v_state, v_msg, left(regexp_replace(stmt, '\s+', ' ', 'g'), 240)); end if;
   return v;
 end $$;
 -- run as the session owner (bypasses RLS, no JWT): rows affected or -1 on error
 create or replace function pg_temp.owner_try(stmt text) returns bigint language plpgsql as $$
-declare n bigint;
-begin begin execute stmt; get diagnostics n = row_count; exception when others then n := -1; end; return n; end $$;
+declare n bigint; v_state text; v_msg text;
+begin
+  begin execute stmt; get diagnostics n = row_count;
+  exception when others then get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text; n := -1; end;
+  if n = -1 then insert into t_errors (uid, sqlstate, message, stmt) values (null, v_state, v_msg, left(regexp_replace(stmt, '\s+', ' ', 'g'), 240)); end if;
+  return n;
+end $$;
 create or replace function pg_temp.check_(label text, cond boolean, detail text default null) returns void language plpgsql as $$
 begin insert into t_results (label, passed, detail) values (label, coalesce(cond, false), detail); end $$;
 create or replace function pg_temp.set_now(ts text) returns void language plpgsql as $$
@@ -126,10 +143,14 @@ select pg_temp.owner_try($$update ssc_topics set archived = true where id = '21e
 select pg_temp.check_('013 an archived item disappears from the queue', pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select count(*)::text from public.revision_queue() where entity_id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286'$$) = '0');
 select pg_temp.owner_try($$update ssc_topics set archived = false where id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286'$$);
 select pg_temp.check_('013 and returns when it is un-archived', pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select count(*)::text from public.revision_queue() where entity_id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286'$$) = '1');
--- custom ladder shows up in the queue and in scheduling
-select pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select public.set_progress('ssc_topic', 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e', 'learning', 10, 3)$$);
+-- custom ladder shows up in the queue and in scheduling.
+-- Two DIFFERENT anchors, both by design (008): COMPLETING an item seeds its first revision at today + ladder[1]; schedule_revision() ("revise this now") pulls an open
+-- revision to TODAY (or opens one due today) and records interval_days = ladder[1].
+select pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select public.set_progress('ssc_topic', 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e', 'completed', 100, 3)$$);
+select pg_temp.check_('013 custom ladder: COMPLETING seeds B''s first revision at +2 days (ladder 2,5,20), step 0, reason completion', pg_temp.val_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select (due_date - today)::text || '|' || ladder::text || '|' || step || '|' || reason from public.revision_queue()$$) = '2|{2,5,20}|0|completion');
 select pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select public.schedule_revision('ssc_topic', 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e')$$);
-select pg_temp.check_('013 custom ladder: B''s first revision is due +2 days (ladder 2,5,20)', pg_temp.val_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select (due_date - today)::text || '|' || ladder::text from public.revision_queue()$$) = '2|{2,5,20}');
+select pg_temp.check_('013 schedule_revision("revise now") pulls the open revision to TODAY, keeps step 0, still one open row, history untouched', pg_temp.val_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select (due_date - today)::text || '|' || step || '|' || reason from public.revision_queue()$$) = '0|0|manual'
+  and (select count(*) = 1 from revision_schedule where user_id = '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e' and not done) and (select count(*) = 0 from revision_reviews where user_id = '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed'));
 
 -- ---------------- revision_next as the interval preview (pure, client-callable, any ladder) ----------------
 select pg_temp.check_('013 preview Good from step 1 on 2,5,20 -> step 2, 20 days', pg_temp.val_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select step || '|' || interval_days from public.revision_next(1, 'good', '{2,5,20}', date '2026-10-01')$$) = '2|20');
@@ -137,10 +158,13 @@ select pg_temp.check_('013 preview Hard from step 2 -> step 1 and the SHORTEST i
 select pg_temp.check_('013 preview Easy from step 1 on 3 steps graduates (no interval, no date)', pg_temp.val_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select graduated::text || '|' || coalesce(interval_days::text, 'null') from public.revision_next(1, 'easy', '{2,5,20}', date '2026-10-01')$$) = 'true|null');
 select pg_temp.check_('013 preview uses the ladder it is given (default ladder: Good from step 0 -> 3 days)', pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select interval_days::text from public.revision_next(0, 'good', '{1,3,7,15,30}', date '2026-10-01')$$) = '3');
 
+-- NOTE (harness rule 1): a SELECT cannot see rows written by a volatile function called in the SAME statement, so each action runs in its own statement
+-- (results kept in t_ret) and the state it produced is verified in the next one.
 -- ---------------- review: Good ----------------
 insert into t_runs (k, id) select 'p7ch2', id from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'dd124977-1642-564e-8776-86a09a5ccdbf' and not done;
-select pg_temp.check_('013 Good at step 1 -> step 2, due +7 days, history row appended', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'good', 1)$f$, (select id from t_runs where k = 'p7ch2'))) >= 0
-  and (select step || '|' || due_date from revision_schedule where id = (select id from t_runs where k = 'p7ch2')) = '2|2026-10-08'
+insert into t_ret select 'good1', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'good', 1)$f$, (select id from t_runs where k = 'p7ch2')));
+select pg_temp.check_('013 Good at step 1: the RPC succeeded', (select n from t_ret where k = 'good1') >= 0, (select 'rows_as=' || n from t_ret where k = 'good1'));
+select pg_temp.check_('013 Good at step 1 -> step 2, due +7 days (ladder 1,3,7,15,30 from the review date), one history row appended', (select step || '|' || due_date from revision_schedule where id = (select id from t_runs where k = 'p7ch2')) = '2|2026-10-08'
   and (select count(*) = 1 and bool_and(rating = 'good' and step_before = 1 and step_after = 2 and interval_days_after = 7 and not graduated) from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'dd124977-1642-564e-8776-86a09a5ccdbf'));
 select pg_temp.check_('013 reviewed item leaves the overdue bucket (becomes upcoming)', pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select bucket from public.revision_queue() where entity_id = 'dd124977-1642-564e-8776-86a09a5ccdbf'$$) = 'upcoming');
 -- ---------------- duplicate / stale ----------------
@@ -152,28 +176,39 @@ select pg_temp.check_('013 wrong expected_step (3, actual 2) is rejected and wri
 select pg_temp.check_('013 unknown rating rejected', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'perfect', 2)$f$, (select id from t_runs where k = 'p7t1'))) = -1);
 select pg_temp.check_('013 confidence outside 1..5 rejected', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'good', 2, 9)$f$, (select id from t_runs where k = 'p7t1'))) = -1);
 -- ---------------- Hard ----------------
-select pg_temp.check_('013 Hard at step 2 -> step 1, interval = shortest (1 day), history appended not reset', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'hard', 2, 2)$f$, (select id from t_runs where k = 'p7t1'))) >= 0
-  and (select step || '|' || due_date from revision_schedule where id = (select id from t_runs where k = 'p7t1')) = '1|2026-10-02'
+insert into t_ret select 'hard1', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'hard', 2, 2)$f$, (select id from t_runs where k = 'p7t1')));
+select pg_temp.check_('013 Hard at step 2: the RPC succeeded', (select n from t_ret where k = 'hard1') >= 0, (select 'rows_as=' || n from t_ret where k = 'hard1'));
+select pg_temp.check_('013 Hard at step 2 -> step 1, interval = shortest (1 day), history appended not reset', (select step || '|' || due_date from revision_schedule where id = (select id from t_runs where k = 'p7t1')) = '1|2026-10-02'
   and (select count(*) = 1 and bool_and(rating = 'hard' and step_before = 2 and step_after = 1 and interval_days_after = 1 and confidence = 2) from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e'));
-select pg_temp.check_('013 a second Hard keeps adding history (2 rows), the first one is untouched', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'hard', 1)$f$, (select id from t_runs where k = 'p7t1'))) >= 0
-  and (select count(*) = 2 from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e') and (select step = 0 from revision_schedule where id = (select id from t_runs where k = 'p7t1')));
-select pg_temp.check_('013 Hard at step 0 stays at step 0 (floor)', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'hard', 0)$f$, (select id from t_runs where k = 'p7t1'))) >= 0 and (select step = 0 from revision_schedule where id = (select id from t_runs where k = 'p7t1')));
+insert into t_ret select 'hard2', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'hard', 1)$f$, (select id from t_runs where k = 'p7t1')));
+select pg_temp.check_('013 a second Hard keeps adding history (2 rows), the first one is untouched, step 0', (select n from t_ret where k = 'hard2') >= 0
+  and (select count(*) = 2 from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e') and (select step = 0 from revision_schedule where id = (select id from t_runs where k = 'p7t1'))
+  and (select count(*) = 1 from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e' and step_before = 2 and step_after = 1 and interval_days_after = 1));
+insert into t_ret select 'hard3', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'hard', 0)$f$, (select id from t_runs where k = 'p7t1')));
+select pg_temp.check_('013 Hard at step 0 stays at step 0 (floor) and still appends history', (select n from t_ret where k = 'hard3') >= 0 and (select step = 0 from revision_schedule where id = (select id from t_runs where k = 'p7t1'))
+  and (select count(*) = 3 from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e'));
 select pg_temp.check_('013 repeated Hard reviews leave the learning engine reporting the item as weak (reason is server-derived)', pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select mastery || '|' || (weak_reason is not null)::text from public.user_entity_signals('ssc_topic', 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e')$$) = 'weak|true');
 -- ---------------- Easy + graduation ----------------
 insert into t_runs (k, id) select 'p7st1', id from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300' and not done;
-select pg_temp.check_('013 Easy at the second-to-last step graduates: row closed, no open row, history says graduated', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'easy', 3)$f$, (select id from t_runs where k = 'p7st1'))) >= 0
+insert into t_ret select 'easy1', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'easy', 3)$f$, (select id from t_runs where k = 'p7st1')));
+select pg_temp.check_('013 Easy at step 3 of 5 (3 + 2 = past the last step) graduates: row closed, no open row, history says graduated', (select n from t_ret where k = 'easy1') >= 0
   and (select done from revision_schedule where id = (select id from t_runs where k = 'p7st1')) and (select count(*) = 0 from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300' and not done)
   and (select count(*) = 1 and bool_and(graduated and interval_days_after is null) from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300'));
 select pg_temp.check_('013 graduated item leaves the queue', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select * from public.revision_queue() where entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300'$$) = 0);
 select pg_temp.check_('013 graduation does not delete progress (the item is still in the learner''s study list)', (select count(*) = 1 from user_progress where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300'));
 select pg_temp.check_('013 reviewing a CLOSED schedule is rejected', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'good', 4)$f$, (select id from t_runs where k = 'p7st1'))) = -1);
-select pg_temp.check_('013 a graduated item can be scheduled again explicitly (one new open row)', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select public.schedule_revision('ssc_subtopic', '4654f3fc-fa66-5d7d-9e71-91c21c483300')$$) >= 0 and (select count(*) = 1 from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300' and not done));
+insert into t_ret select 'resched', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select public.schedule_revision('ssc_subtopic', '4654f3fc-fa66-5d7d-9e71-91c21c483300')$$);
+select pg_temp.check_('013 a graduated item can be scheduled again explicitly (one new open row, due today, step 0; the closed row and its history stay)', (select n from t_ret where k = 'resched') >= 0
+  and (select count(*) = 1 from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300' and not done) and (select count(*) = 1 from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300' and done)
+  and (select count(*) = 1 from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300'));
 -- ---------------- custom ladder, full path for B ----------------
 insert into t_runs (k, id) select 'p7b', id from revision_schedule where user_id = '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e' and not done;
 select pg_temp.set_now('2026-10-03 12:00:00+00');
-select pg_temp.check_('013 B Good at step 0 on ladder 2,5,20 -> step 1, due +5 from the review date', pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', format($f$select public.review_revision(%L, 'good', 0)$f$, (select id from t_runs where k = 'p7b'))) >= 0
+insert into t_ret select 'bgood', pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', format($f$select public.review_revision(%L, 'good', 0)$f$, (select id from t_runs where k = 'p7b')));
+select pg_temp.check_('013 B Good at step 0 on ladder 2,5,20 -> step 1, due +5 from the REVIEW date (2026-10-03 + 5)', (select n from t_ret where k = 'bgood') >= 0
   and (select step || '|' || due_date from revision_schedule where id = (select id from t_runs where k = 'p7b')) = '1|2026-10-08');
-select pg_temp.check_('013 changing the ladder later does not rewrite history', pg_temp.owner_try($$update profiles set revision_intervals = '{1,2}' where id = '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed'$$) >= 0 and (select interval_days_after = 5 from revision_reviews where user_id = '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e'));
+select pg_temp.owner_try($$update profiles set revision_intervals = '{1,2}' where id = '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed'$$);
+select pg_temp.check_('013 changing the ladder later does not rewrite history', (select revision_intervals = '{1,2}' from profiles where id = '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed') and (select interval_days_after = 5 from revision_reviews where user_id = '7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e'));
 select pg_temp.set_now('2026-10-01 12:00:00+00');
 -- ---------------- append-only + cross-user ----------------
 select pg_temp.check_('013 history cannot be UPDATEd by the owner role (append-only trigger)', pg_temp.owner_try($$update revision_reviews set rating = 'easy' where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4'$$) = -1);

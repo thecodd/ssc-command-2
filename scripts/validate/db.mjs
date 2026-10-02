@@ -107,6 +107,7 @@ export function applyMigrations(url, migs, report, log) {
 const MARKERS = `
 select 'CGL_RESULT|' || count(*) filter (where passed) || '|' || count(*) filter (where not passed) || '|' || count(*) from t_results;
 select 'CGL_FAIL|' || n || '|' || label || '|' || coalesce(detail, '') from t_results where not passed order by n;
+select 'CGL_ERR|' || n || '|' || coalesce(uid::text, 'owner/anon') || '|' || coalesce(sqlstate, '') || '|' || coalesce(message, '') || '|' || coalesce(stmt, '') from t_errors order by n;
 `;
 const LEFTOVER = `select (select count(*) from public.chapters where title like 'TEST %') + (select count(*) from public.books where title like 'TEST %') + (select count(*) from public.ssc_topics where title like 'TEST %') + (select count(*) from auth.users where email like '%@test.local')`;
 export function runSuite(url, suite, log) {
@@ -120,6 +121,7 @@ export function runSuite(url, suite, log) {
   const r = psql(url, ["-q", "-A", "-t", "-f", "-"], sql);
   const logFile = log(`suite_${suite.key}.log`, `exit=${r.code} elapsed=${r.ms}ms\n--- stdout\n${r.stdout}\n--- stderr\n${r.stderr}`);
   const out = { log: logFile, ms: r.ms, items: [] };
+  const errs = [...r.stdout.matchAll(/^CGL_ERR\|(.*)$/gm)].map((m) => m[1]); if (errs.length) log(`suite_${suite.key}.errors.log`, `Every error the SQL test helpers swallowed (n|uid|sqlstate|message|statement). Most are EXPECTED (negative tests); read them next to a failing check.\n` + errs.join("\n"));
   if (r.code === 2 || r.error) return { ...out, status: STATUS.BLOCKED, detail: "ENVIRONMENT: " + firstError(r.stderr || r.error) };
   const res = /^CGL_RESULT\|(\d+)\|(\d+)\|(\d+)/m.exec(r.stdout), fails = [...r.stdout.matchAll(/^CGL_FAIL\|(\d+)\|(.*?)\|(.*)$/gm)].map((m) => ({ n: +m[1], label: m[2], detail: m[3] }));
   if (r.code !== 0 || !res) return { ...out, status: STATUS.FAIL, detail: `SQL ERROR while running the suite (script aborted${res ? "" : ", no result table"}): ${firstError(r.stderr)}`, items: fails };

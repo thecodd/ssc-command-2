@@ -146,4 +146,23 @@ export default async function () {
     cp.execFileSync("node", [path.join(root, "database/security/build_privileges.js")], { cwd: root, stdio: "pipe" }); assert.equal(fs.readFileSync(f, "utf8") === a[0] && fs.readFileSync(d, "utf8") === a[1], true);
     const r = cp.spawnSync("node", [path.join(root, "database/security/static_audit.cjs")], { cwd: root, encoding: "utf8" }); assert.equal(r.status, 0, r.stdout);
   });
+  await t("014: authenticated/anon lose TRUNCATE, REFERENCES and TRIGGER on every public table (RLS cannot protect against TRUNCATE) and 014 asserts it", () => {
+    const g = strip(mig("014_function_privileges.sql"));
+    assert.match(g, /revoke truncate, references, trigger on all tables in schema public from anon, authenticated;/); assert.match(g, /alter default privileges in schema public revoke truncate, references, trigger on tables from anon, authenticated;/);
+    assert.match(g, /has_table_privilege\(rl\.rolname, c\.oid, 'truncate, references, trigger'\)/); assert.match(g, /still has TRUNCATE\/REFERENCES\/TRIGGER/);
+    const all = fs.readdirSync(path.join(root, "database/migrations")).map((f) => strip(mig(f))).join("\n"); assert.doesNotMatch(all, /grant[^;]*\btruncate\b[^;]*to\s+(anon|authenticated)/i);
+  });
+  await t("SQL test harness rules are encoded: STABLE functions are evaluated by rows_as, errors are recorded, and no suite checks a write and its effect in ONE statement", () => {
+    const h = fs.readFileSync(path.join(root, "database/tests/phase4/00_harness.sql"), "utf8");
+    assert.match(h, /select count\(t\) from \(select q::text as t from \(/); assert.doesNotMatch(h, /execute 'select count\(\*\) from \(' \|\| stmt/); assert.match(h, /create temp table t_errors/); assert.match(h, /create temp table t_ret/);
+    for (const f of ["phase6/12_practice_security.sql", "phase7/13_revision.sql", "security/14_security_regression.sql"]) {
+      const sql = fs.readFileSync(path.join(root, "database/tests", f), "utf8");
+      for (const m of sql.matchAll(/select pg_temp\.check_\('([^']*(?:''[^']*)*)'([\s\S]*?)\);\n/g)) {
+        const body = m[2]; const writes = /(?:rows_as|owner_try)\([^;]*?(review_revision|schedule_revision|set_progress|submit_pyq_answer|start_practice|insert into|update \w+ set|delete from)/.test(body);
+        const expectsSuccess = /(>= 0|>= 1| = 1\b|in \(0, -1\))\s*(and|\))/.test(body.replace(/= -1/g, ""));
+        const readsState = /\(select [^()]*from (revision_schedule|revision_reviews|user_progress|chapters|books|pyqs|pyq_attempts|practice_sessions|study_sessions|profiles)\b/.test(body);
+        if (writes && expectsSuccess && readsState && !/= -1/.test(body)) assert.fail(`${f}: "${m[1].slice(0, 80)}" writes and reads its own effect in ONE statement (a SELECT cannot see rows written by a volatile function in the same statement)`);
+      }
+    }
+  });
 }

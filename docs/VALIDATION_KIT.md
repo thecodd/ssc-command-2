@@ -52,3 +52,8 @@ Coverage: `/dashboard /study /revision /revision/[id] /study/[type]/[id] /practi
 - `npm run test:kit` - 13 tests of the kit's own logic against a fake `psql` (safety refusals, ledger, stop-on-first-failure, result parsing, exit-code mapping, verdict). They prove nothing about PostgreSQL.
 - `npm run validate:sql-check` / `validate:sql-build`, `npm run validate:static-sql`, `npm run e2e:real`, `npm run test:fixture-smoke`.
 - Fixture smoke (`tests/browser`) and the Node tests are a separate category: supporting evidence, never "real browser validation".
+
+## SQL test harness rules (learned from the first real runs)
+1. A SELECT cannot see rows written by a VOLATILE function called in the SAME statement. Run the action in its own statement (`insert into t_ret select 'k', rows_as(...)`) and check the state in the next one. A Node test fails any suite that reintroduces `rows_as(<write>) >= 0 and (select <that write>)`.
+2. `rows_as` consumes every output column, otherwise PostgreSQL never evaluates an unreferenced STABLE/IMMUTABLE function (no error, no privilege check).
+3. Every error the helpers swallow is recorded in `t_errors`; the kit writes it to `logs/suite_<name>.errors.log` (most entries are expected negative tests). Stage S8 writes `logs/diagnostics.log` (read-only catalog facts).

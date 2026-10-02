@@ -4,39 +4,56 @@
 begin;
 create temp table t_results (n serial, label text, passed boolean, detail text);
 create temp table t_runs (k text primary key, id uuid);
+create temp table t_ret (k text primary key, n bigint);                      -- results of actions run in their OWN statement (see the visibility note below)
+create temp table t_errors (n serial, uid uuid, sqlstate text, message text, stmt text);   -- every error the helpers swallowed (kept for diagnostics; the kit prints it as CGL_ERR lines)
 
--- rows visible / affected for a statement run AS a user (null = anon), or -1 if it raised.
+-- HARNESS RULES (learned from the first real runs):
+--  1. A SELECT cannot see rows written by a VOLATILE function called in the SAME statement. Never write `rows_as(<write>) >= 0 and (select <read of what it wrote>)`:
+--     run the action in its own statement (`insert into t_ret select k, rows_as(...)`) and check the resulting state in the NEXT statement.
+--  2. `select count(*) from (select stable_fn(...)) q` never EVALUATES a STABLE/IMMUTABLE function nobody reads (no error, no privilege check). rows_as therefore
+--     consumes every output column (count of the row text), so errors and EXECUTE-privilege failures of STABLE functions are really observed.
+
+-- rows visible / affected for a statement run AS a user (null = anon), or -1 if it raised (the error is recorded in t_errors).
 create or replace function pg_temp.rows_as(uid uuid, stmt text) returns bigint language plpgsql as $$
-declare n bigint;
+declare n bigint; v_state text; v_msg text;
 begin
   perform set_config('request.jwt.claims', case when uid is null then '' else json_build_object('sub', uid, 'role', 'authenticated')::text end, true);
   perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
   execute case when uid is null then 'set local role anon' else 'set local role authenticated' end;
   begin
-    if lower(ltrim(stmt)) like 'select%' then execute 'select count(*) from (' || stmt || ') q' into n;
+    if lower(ltrim(stmt)) like 'select%' then execute 'select count(t) from (select q::text as t from (' || stmt || ') q) z' into n;
     else execute stmt; get diagnostics n = row_count; end if;
-  exception when others then n := -1;
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text; n := -1;
   end;
   execute 'reset role';
   perform set_config('request.jwt.claims', '', true); perform set_config('request.jwt.claim.sub', '', true);
+  if n = -1 then insert into t_errors (uid, sqlstate, message, stmt) values (uid, v_state, v_msg, left(regexp_replace(stmt, '\s+', ' ', 'g'), 240)); end if;
   return n;
 end $$;
 -- first column of first row as text (NULL on error / no rows)
 create or replace function pg_temp.val_as(uid uuid, stmt text) returns text language plpgsql as $$
-declare v text;
+declare v text; v_state text; v_msg text; v_err boolean := false;
 begin
   perform set_config('request.jwt.claims', case when uid is null then '' else json_build_object('sub', uid, 'role', 'authenticated')::text end, true);
   perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
   execute case when uid is null then 'set local role anon' else 'set local role authenticated' end;
-  begin execute 'select x::text from (' || stmt || ') q(x) limit 1' into v; exception when others then v := null; end;
+  begin execute 'select x::text from (' || stmt || ') q(x) limit 1' into v;
+  exception when others then get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text; v := null; v_err := true; end;
   execute 'reset role';
   perform set_config('request.jwt.claims', '', true); perform set_config('request.jwt.claim.sub', '', true);
+  if v_err then insert into t_errors (uid, sqlstate, message, stmt) values (uid, v_state, v_msg, left(regexp_replace(stmt, '\s+', ' ', 'g'), 240)); end if;
   return v;
 end $$;
 -- run as the session owner (bypasses RLS, no JWT): rows affected or -1 on error
 create or replace function pg_temp.owner_try(stmt text) returns bigint language plpgsql as $$
-declare n bigint;
-begin begin execute stmt; get diagnostics n = row_count; exception when others then n := -1; end; return n; end $$;
+declare n bigint; v_state text; v_msg text;
+begin
+  begin execute stmt; get diagnostics n = row_count;
+  exception when others then get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text; n := -1; end;
+  if n = -1 then insert into t_errors (uid, sqlstate, message, stmt) values (null, v_state, v_msg, left(regexp_replace(stmt, '\s+', ' ', 'g'), 240)); end if;
+  return n;
+end $$;
 create or replace function pg_temp.check_(label text, cond boolean, detail text default null) returns void language plpgsql as $$
 begin insert into t_results (label, passed, detail) values (label, coalesce(cond, false), detail); end $$;
 create or replace function pg_temp.set_now(ts text) returns void language plpgsql as $$
@@ -129,11 +146,13 @@ select pg_temp.check_('006 note on a real entity accepted', pg_temp.rows_as('eda
 select pg_temp.check_('006 progress type allow-list (pyq not trackable)', pg_temp.owner_try($$insert into user_progress (user_id, entity_type, entity_id, status) values ('eda6c4d2-347b-52c8-92c4-bd428277acd4', 'pyq', '6923f5c9-c73b-50f3-aef9-ac779ca167bf', 'learning')$$) = -1);
 select pg_temp.check_('006 half task reference rejected by the pair check', pg_temp.owner_try($$insert into tasks (user_id, title, entity_id) values ('eda6c4d2-347b-52c8-92c4-bd428277acd4', 'x', 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e')$$) = -1);
 -- a curriculum row cannot exist without its registry row (deferred FK; forced immediate for the test)
+-- PostgreSQL refuses ALTER TABLE while deferred constraint-trigger events are pending, and the fixtures above queued some (chapters_entity_fk is DEFERRABLE INITIALLY DEFERRED).
+-- Settle them first (this also validates every deferred registry reference queued so far), run the integrity assertion with the constraint IMMEDIATE, then restore deferral.
+set constraints all immediate;
 alter table public.chapters disable trigger entity_register;
-set constraints public.chapters_entity_fk immediate;
 select pg_temp.check_('006 curriculum row without registry row is rejected', pg_temp.owner_try($$insert into chapters (book_id, title) values ('c199e71a-db01-5359-b575-151d904fa192', 'TEST unregistered')$$) = -1);
 alter table public.chapters enable trigger entity_register;
-set constraints public.chapters_entity_fk deferred;
+set constraints all deferred;
 -- a registry row without a curriculum row is DETECTED by the audit (not prevented by a constraint: documented limitation)
 insert into entities (id, type) values ('677652f8-f0c7-5147-9dae-104a40be836d', 'pyq');
 select pg_temp.check_('006 audit reports an orphan registry row', (select count(*) from entities_integrity_report() where id = '677652f8-f0c7-5147-9dae-104a40be836d') = 1);

@@ -31,10 +31,21 @@ let axeSource = null; try { axeSource = fs.readFileSync(require.resolve("axe-cor
 const browser = await pw.chromium.launch({ args: ["--no-sandbox"] }).catch((e) => { R("chromium", "BLOCKED", "cannot launch Chromium: " + e.message.split("\n")[0]); finish(); });
 // ---- login once, reuse the session everywhere
 const lctx = await browser.newContext({ viewport: { width: 1024, height: 800 } }), lp = await lctx.newPage();
+const authNet = [], loginLog = [];
+lp.on("response", (r) => { if (/\/auth\/v1\//.test(r.url())) authNet.push(`${r.request().method()} ${new URL(r.url()).pathname} -> ${r.status()}`); });
+lp.on("requestfailed", (r) => authNet.push(`${r.method()} ${r.url().replace(/\?.*/, "")} FAILED ${r.failure()?.errorText}`));
+lp.on("console", (m) => { if (m.type() === "error") loginLog.push(m.text().slice(0, 160)); });
 try {
   await lp.goto(BASE + "/login", { waitUntil: "domcontentloaded" }); await lp.getByLabel("Email").fill(EMAIL); await lp.getByLabel("Password").fill(PASSWORD);
   await lp.getByRole("button", { name: /sign in|log in/i }).click(); await lp.waitForURL(/\/dashboard/, { timeout: 20000 });
-} catch (e) { R("login", "FAIL", "could not sign in with E2E_EMAIL/E2E_PASSWORD: " + e.message.split("\n")[0]); await browser.close(); finish(); }
+} catch (e) {
+  // Report WHY: the app's own visible error, the auth requests the browser made and their status, console errors and cookie NAMES (never values).
+  const alertText = await lp.getByRole("alert").first().innerText({ timeout: 1000 }).catch(() => "(no alert shown)");
+  const cookieNames = (await lp.context().cookies()).map((c) => c.name).join(",") || "(none)";
+  const why = `${e.message.split("\n")[0]} | url=${new URL(lp.url()).pathname} | alert="${alertText.slice(0, 160)}" | auth requests: ${authNet.join("; ") || "(none made)"} | console: ${loginLog.join(" // ") || "(none)"} | cookies: ${cookieNames}`;
+  if (ART) { await lp.screenshot({ path: path.join(ART, "login-failure.png"), fullPage: true }).catch(() => {}); fs.writeFileSync(path.join(ART, "auth-diagnostics.json"), JSON.stringify({ url: lp.url(), alertText, authNet, loginLog, cookieNames }, null, 1)); }
+  R("login", "FAIL", "could not sign in with E2E_EMAIL/E2E_PASSWORD: " + why.split(PASSWORD).join("***")); await browser.close(); finish();
+}
 const state = await lctx.storageState(); await lctx.close();
 R("login", "PASS", "signed in through the real /login form");
 

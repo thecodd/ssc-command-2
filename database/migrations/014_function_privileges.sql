@@ -5,6 +5,7 @@
 -- Older migrations revoked selectively; anything not named stayed callable by anon. This migration is an ALLOW-LIST:
 --   1. revoke EXECUTE on every function WE own in schema public (extension functions such as pg_trgm are skipped) from PUBLIC, anon, authenticated
 --   2. grant back only what the matrix says: client RPCs, RLS helpers and pure helpers -> authenticated; service jobs -> service_role only
+--   2c. (tables) remove TRUNCATE / REFERENCES / TRIGGER from anon and authenticated on every public table (RLS cannot protect against TRUNCATE)
 --   3. assert the result, and raise (rolling the migration back) if anything is off
 -- service_role keeps EXECUTE everywhere (it is never revoked here). Trigger functions need no EXECUTE grant to fire.
 
@@ -109,6 +110,12 @@ do $$ declare f text; p regprocedure; begin
   end loop;
 end $$;
 
+-- 2c. TABLE privileges that Row Level Security does NOT cover. Supabase's default privileges (and the CI bootstrap that mimics them) grant ALL on every new table to
+-- anon and authenticated, including TRUNCATE (RLS never applies to it), REFERENCES and TRIGGER. Clients never need these three. Row access stays governed by RLS and by the
+-- explicit revokes of earlier migrations; this removes only the non-DML privileges, for existing tables and for tables created later by this role.
+revoke truncate, references, trigger on all tables in schema public from anon, authenticated;
+alter default privileges in schema public revoke truncate, references, trigger on tables from anon, authenticated;
+
 -- 3. assertions
 -- The allow-list is compared as RESOLVED OIDs (to_regprocedure), never as text: regprocedure::text depends on search_path and on type aliases
 -- (it prints "set_publish_status(text,uuid,publish_status_t)" with no spaces, "integer" for int, schema-qualified enums when public is not on the path).
@@ -198,6 +205,11 @@ do $$ declare r record; n int; v_name text; v_sig regprocedure; v_allowed oid[] 
             where ns.nspname = 'public' and p.prokind = 'f' and p.prosecdef and has_function_privilege('authenticated', p.oid, 'execute')
               and p.oid <> all (v_allowed) loop
     raise exception '014: SECURITY DEFINER function % is executable by authenticated but is not on the allow-list', r.sig;
+  end loop;
+  -- no client role can TRUNCATE (or REFERENCE / TRIGGER on) any table in schema public
+  for r in select c.oid::regclass as tbl, rl.rolname from pg_class c join pg_namespace ns on ns.oid = c.relnamespace cross join (values ('anon'), ('authenticated')) rl(rolname)
+            where ns.nspname = 'public' and c.relkind in ('r', 'p') and has_table_privilege(rl.rolname, c.oid, 'truncate, references, trigger') loop
+    raise exception '014: % still has TRUNCATE/REFERENCES/TRIGGER on %', r.rolname, r.tbl;
   end loop;
   -- every SECURITY DEFINER function pins its search_path
   select count(*) into n from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace

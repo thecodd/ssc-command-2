@@ -14,7 +14,7 @@
     "validate:sql-build": "node scripts/validate/sqlbuild.mjs",
     "validate:sql-check": "node scripts/validate/sqlbuild.mjs --check",
     "validate:static-sql": "node database/security/static_audit.cjs",
-    "test:kit": "node --test tests/kit/kit.test.mjs tests/kit/ci.test.mjs",
+    "test:kit": "node --test --test-timeout=300000 tests/kit/kit.test.mjs tests/kit/ci.test.mjs tests/kit/e2e_harness.test.mjs tests/kit/contrast.test.mjs",
     "test:fixture-smoke": "node tests/browser/build.js && node tests/browser/gen.js && python3 tests/browser/run.py",
     "e2e:real": "node tests/e2e/real_routes.mjs",
     "lint:hooks": "node scripts/lint/hook_deps_check.cjs"

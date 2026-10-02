@@ -17,8 +17,8 @@ export function RevisionCard({ revision, label, canSchedule, ladder, history }: 
   const schedule = () => void mutate("schedule", () => api.scheduleRevision(type, id));
   return (
     <section id="revision" data-study-section tabIndex={-1} aria-labelledby="revision-h" className="card space-y-3 p-5 outline-none">
-      <h2 id="revision-h" className="flex items-center gap-2 text-sm text-sub"><RefreshCw className={`h-4 w-4 ${due ? "text-violet" : ""}`} aria-hidden />Revision</h2>
-      <p className={`text-base font-medium ${due ? "text-violet" : ""}`}>{label}</p>
+      <h2 id="revision-h" className="flex items-center gap-2 text-sm text-sub"><RefreshCw className={`h-4 w-4 ${due ? "text-violet-fg" : ""}`} aria-hidden />Revision</h2>
+      <p className={`text-base font-medium ${due ? "text-violet-fg" : ""}`}>{label}</p>
       {due && revision.scheduleId && <Link href={revisionHref(revision.scheduleId)} className="btn-primary w-full">Review</Link>}
       {ladder.length > 0 && revision.state !== "none" && <LadderStrip ladder={ladder} step={revision.state === "graduated" ? ladder.length : revision.step} />}
       {history.length > 0 && <div><h3 className="mb-1.5 text-xs uppercase tracking-widest text-mute">Past reviews</h3><RevisionHistory rows={history} /></div>}

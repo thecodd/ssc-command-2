@@ -7,6 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import cp from "node:child_process";
 import { createRequire } from "node:module";
+import { trackFailures } from "./network_filter.mjs";
+import { pickRadio } from "./interactions.mjs";
 const require = createRequire(import.meta.url);
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : d; };
 const BASE = (arg("--base-url", process.env.E2E_BASE_URL || "http://127.0.0.1:3000")).replace(/\/$/, ""), OUT = arg("--out", "e2e.json");
@@ -63,7 +65,7 @@ async function inspect(route, w) {
   if (ART) await ctx.tracing.start({ screenshots: true, snapshots: true }).catch(() => {});
   page.on("console", (m) => { const t = m.text(); if (m.type() === "error" || m.type() === "warning" || /hydrat/i.test(t)) clog(tag, `console.${m.type()}: ${t.slice(0, 400)}`); if (m.type() === "error" || /hydrat/i.test(t)) problems.push(`console.${m.type()}: ${t.slice(0, 200)}`); });
   page.on("pageerror", (e) => { clog(tag, "pageerror: " + e.message); problems.push("pageerror: " + String(e.message).slice(0, 200)); });
-  page.on("requestfailed", (r) => { if (!/favicon|_next\/static|\.map$/.test(r.url())) { clog(tag, `requestfailed: ${r.method()} ${r.url()} ${r.failure()?.errorText}`); problems.push(`requestfailed: ${r.method()} ${r.url().slice(0, 120)} ${r.failure()?.errorText}`); } });
+  const tracker = trackFailures(page, BASE, (line) => { clog(tag, "requestfailed: " + line); problems.push("requestfailed: " + line.slice(0, 200)); }, (line) => clog(tag, "ignored (expected): " + line));
   page.on("response", (r) => { if (r.status() >= 400 && r.url().startsWith(BASE) && !/favicon/.test(r.url())) { clog(tag, `HTTP ${r.status()} ${r.url()}`); problems.push(`HTTP ${r.status()} ${r.url().slice(BASE.length, BASE.length + 100)}`); } });
   let status = 0; try { const r = await page.goto(BASE + route, { waitUntil: "networkidle", timeout: 30000 }); status = r?.status() ?? 0; } catch (e) { problems.push("navigation: " + e.message.split("\n")[0]); }
   await page.waitForTimeout(400);
@@ -90,6 +92,7 @@ async function inspect(route, w) {
     await page.evaluate(axeSource); const ax = await page.evaluate(async () => await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] } }));
     const bad = ax.violations.filter((v) => v.impact === "serious" || v.impact === "critical"); if (ART && ax.violations.length) fs.writeFileSync(path.join(ART, `axe_${slug(tag)}.json`), JSON.stringify(ax.violations, null, 1)); A(`axe ${route} @${w}px`, bad.length ? "FAIL" : "PASS", bad.length ? bad.map((v) => `${v.id}(${v.nodes.length})`).join(", ") : `${ax.violations.length} minor/moderate, 0 serious/critical`);
   }
+  tracker.setClosing();
   if (ART) await ctx.tracing.stop(problems.length ? { path: path.join(ART, `${slug(tag)}.trace.zip`) } : undefined).catch(() => {});
   await ctx.close();
 }
@@ -110,12 +113,12 @@ await flow("flow: revision review (recall -> reveal -> confidence -> rate -> res
   if (await page.getByRole("radio", { name: /Hard|Good|Easy/ }).count()) throw new Error("rating controls visible before the material was revealed");
   await page.getByRole("button", { name: "Show the material" }).click(); const save = page.getByRole("button", { name: "Save review" });
   if (!(await save.isDisabled())) throw new Error("Save review enabled before a rating was chosen");
-  await page.getByRole("radio", { name: /^5/ }).first().check().catch(() => {}); await page.getByRole("radio", { name: /Good/ }).check();
+  await pickRadio(page, /^5\b/); await pickRadio(page, /^Good\b/);
   const body = await page.locator("body").innerText(); if (!/Next review: /.test(body)) throw new Error("no server-previewed next review shown");
   await save.dblclick(); await expectText(page, /Review complete/, 15000); await expectText(page, /Next review/); const next = await page.getByRole("link", { name: /Next revision|Back to queue|caught up/i }).count(); if (!next) throw new Error("no next-action link after the result");
 }, reviewHref ? null : "no open revision for the scratch user");
 await flow("flow: revision stale tab (second tab reviews first; first tab must say 'already updated elsewhere')", async (ctx) => {
-  const a = await ctx.newPage(), b = await ctx.newPage(); for (const p of [a, b]) { await p.goto(BASE + reviewHref, { waitUntil: "networkidle" }); if (!(await p.getByText(/Can you still recall this\?/).count())) throw Object.assign(new Error("the revision is already complete (graduated by the previous flow): seed a second open revision"), { blocked: true }); await p.getByRole("button", { name: "Show the material" }).click(); await p.getByRole("radio", { name: /Good/ }).check(); }
+  const a = await ctx.newPage(), b = await ctx.newPage(); for (const p of [a, b]) { await p.goto(BASE + reviewHref, { waitUntil: "networkidle" }); if (!(await p.getByText(/Can you still recall this\?/).count())) throw Object.assign(new Error("the revision is already complete (graduated by the previous flow): seed a second open revision"), { blocked: true }); await p.getByRole("button", { name: "Show the material" }).click(); await pickRadio(p, /^Good\b/); }
   await a.getByRole("button", { name: "Save review" }).click(); await expectText(a, /Review complete|already updated|already completed/, 15000);
   await b.getByRole("button", { name: "Save review" }).click(); await b.getByRole("alert").first().waitFor({ timeout: 15000 }); const t = await b.getByRole("alert").first().innerText(); if (!/already updated elsewhere|already completed|saved/i.test(t)) throw new Error("stale submit not reported: " + t);
 }, reviewHref ? null : "no open revision for the scratch user");
@@ -133,7 +136,7 @@ await flow("flow: practice (answer, server grading, summary)", async (ctx) => {
   const page = await ctx.newPage(); await page.goto(BASE + practiceHref, { waitUntil: "networkidle" });
   for (let i = 0; i < 60; i++) {
     if (await page.getByRole("heading", { name: /Session summary/ }).count()) break;
-    const radios = page.getByRole("radio"); if (await radios.count()) { await radios.first().check(); await page.getByRole("button", { name: "Submit answer" }).click(); await page.getByRole("heading", { name: /Correct|Incorrect/ }).first().waitFor({ timeout: 10000 }); }
+    const radios = page.getByRole("radio"); if (await radios.count()) { await pickRadio(page, null); await page.getByRole("button", { name: "Submit answer" }).click(); await page.getByRole("heading", { name: /Correct|Incorrect/ }).first().waitFor({ timeout: 10000 }); }
     const nxt = page.getByRole("button", { name: /Next question|See summary/ }); if (await nxt.count()) await nxt.click(); else break;
   }
   await expectText(page, /Session summary/, 15000);

@@ -49,7 +49,7 @@ export function WhatToLearn({ ctx }: { ctx: StudyContext }) {
       <Heading id="learn-h" hint={e.type === "ssc_subtopic" ? `Part of ${e.parentTopic?.title ?? "its topic"}` : undefined}>What to learn</Heading>
       {unfinished.length > 0 && (
         <p className="mb-4 rounded-ctl border border-violet/40 bg-violet/10 p-3 text-sm">
-          <span className="text-violet">Before you start:</span> {unfinished.map((l, i) => <span key={l.id}>{i > 0 && ", "}<Link data-inline href={studyHref("ncert_chapter", l.id)} className="underline">{l.title}</Link></span>)} {unfinished.length === 1 ? "isn't" : "aren't"} done yet.
+          <span className="text-violet-fg">Before you start:</span> {unfinished.map((l, i) => <span key={l.id}>{i > 0 && ", "}<Link data-inline href={studyHref("ncert_chapter", l.id)} className="underline">{l.title}</Link></span>)} {unfinished.length === 1 ? "isn't" : "aren't"} done yet.
         </p>
       )}
       {e.type === "ncert_chapter" && (ctx.concepts.length ? <ol className="space-y-2 text-base">{ctx.concepts.map((c, i) => <li key={i} className="flex gap-3"><span className="w-5 shrink-0 text-right tabular-nums text-mute">{i + 1}</span><span>{c}</span></li>)}</ol> : <p className="text-sm text-sub">No concepts are listed for this chapter yet. Study it as a whole and track it in your progress.</p>)}

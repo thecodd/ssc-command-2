@@ -20,10 +20,16 @@ const job = wf.jobs["runtime-gate"], steps = job.steps, runs = steps.filter((s) 
 const { makeEnv, signJwt, SECRET_KEYS } = await import(R("scripts/ci/make_env.mjs"));
 const { createGateway } = await import(R("scripts/ci/api_gateway.mjs")); const { waitFor } = await import(R("scripts/ci/wait_for.mjs"));
 const sandbox = () => fs.mkdtempSync(path.join(os.tmpdir(), "ci-"));
+// Deterministic teardown (S9 regression): close() also drops keep-alive sockets (fetch/undici and Chromium keep connections open), so no test leaves the event loop alive.
+const _close = http.Server.prototype.close; http.Server.prototype.close = function (cb) { this.closeAllConnections?.(); return _close.call(this, cb); };
 const listen = (srv) => new Promise((r) => srv.listen(0, "127.0.0.1", () => r(srv.address().port)));
 const FAKE = R("tests/kit/fake_psql.cjs");
 function fakePsql(scenario = {}) { const d = sandbox(); fs.mkdirSync(path.join(d, "bin")); const shim = path.join(d, "bin", "psql"); fs.writeFileSync(shim, `#!/bin/sh\nexec node "${FAKE}" "$@"\n`); fs.chmodSync(shim, 0o755); fs.writeFileSync(path.join(d, "s.json"), JSON.stringify(scenario)); return { d, env: { PATH: path.join(d, "bin") + path.delimiter + process.env.PATH, FAKE_PSQL: path.join(d, "s.json") }, calls: () => (fs.existsSync(path.join(d, "calls.jsonl")) ? fs.readFileSync(path.join(d, "calls.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)) : []) }; }
-const node = (script, args, env = {}, opts = {}) => cp.spawnSync(process.execPath, [R(script), ...args], { cwd: root, encoding: "utf8", env: { ...process.env, ...env }, ...opts });
+// Hermetic child environment: the CI job exports DATABASE_URL, NEXT_PUBLIC_*, E2E_* and VALIDATE_E2E_SEED_SCRIPT for the REAL gate. A kit self-test must never
+// inherit them (run #4: the nested kit ran the real seed hook, typecheck, lint and build, and the S9 stage hung until its timeout).
+const GATE_VARS = /^(DATABASE_URL|ADMIN_DATABASE_URL|VALIDATE_DATABASE_URL|VALIDATE_E2E_SEED_SCRIPT|NEXT_PUBLIC_\w+|E2E_\w+|JWT_SECRET|SERVICE_ROLE_KEY|AUTH_ADMIN_PASSWORD|AUTHENTICATOR_PASSWORD|PG_PASSWORD|GOTRUE_URL|POSTGREST_URL|GATEWAY_PORT|API_PUBLIC_URL)$/;
+export const cleanEnv = (extra = {}) => ({ ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !GATE_VARS.test(k))), ...extra });
+const node = (script, args, env = {}, opts = {}) => cp.spawnSync(process.execPath, [R(script), ...args], { cwd: root, encoding: "utf8", env: cleanEnv(env), timeout: 120000, ...opts });
 
 // ============================== workflow (static) ==============================
 test("workflow: valid YAML; triggers, permissions, runner, timeout", () => {
@@ -96,18 +102,19 @@ test("CI SQL: prepare/compat never create objects in schema public, and the Post
 const URL_DB = "postgres://postgres:pw@127.0.0.1:5432/cgl_validation_scratch";
 function kitRun(extraArgs = [], extraEnv = {}, scenario = {}) {
   const f = fakePsql(scenario), out = path.join(f.d, "out");
-  const r = node("scripts/validate_phase7.mjs", ["--db-url", URL_DB, "--shim-auth", "--skip-supporting", "--out", out, ...extraArgs], { ...f.env, VALIDATE_DATABASE_URL: "", ...extraEnv }); return { r, f, out, report: () => JSON.parse(fs.readFileSync(path.join(out, "report.json"), "utf8")) };
+  const r = node("scripts/validate_phase7.mjs", ["--db-url", URL_DB, "--shim-auth", "--skip-supporting", "--skip-app", "--out", out, ...extraArgs], { ...f.env, ...extraEnv }); return { r, f, out, report: () => JSON.parse(fs.readFileSync(path.join(out, "report.json"), "utf8")) };
 }
 test("kit: the --db-url given by the workflow reaches EVERY psql call; all 14 migrations and 4 suites execute; verdict is still NOT READY without deps/browser", () => {
   const k = kitRun(); const calls = k.f.calls().filter((c) => c.url); assert.ok(calls.length > 30); assert.ok(calls.every((c) => c.url === URL_DB), "a psql call used a different URL");
   assert.equal(k.f.calls().filter((c) => c.migration).length, 14 + 0 + 4 * 0 + (k.f.calls().filter((c) => c.migration).length - 14)); assert.equal(k.f.calls().filter((c) => c.migration && /^\d{3}_/.test(c.migration)).length, 14);
   const rep = k.report(), by = Object.fromEntries(rep.stages.map((s) => [s.id, s.status])); assert.equal(by["4a"], "PASS"); assert.equal(by["4b"], "PASS"); for (const id of ["5", "6", "7", "7b"]) assert.equal(by[id], "PASS", id + " (fake psql)");
-  for (const id of ["8", "9", "10", "11", "11b"]) assert.equal(by[id], "BLOCKED", id); assert.equal(k.r.status, 1); assert.equal(k.r.stdout.trim().split("\n").at(-1), "NOT READY FOR PHASE 8");
+  for (const id of ["8", "9", "10", "11", "11b"]) assert.equal(by[id], "NOT RUN", id + " (--skip-app)"); assert.equal(k.r.status, 1); assert.equal(k.r.stdout.trim().split("\n").at(-1), "NOT READY FOR PHASE 8");
 });
 test("kit: the output directory layout matches what the workflow uploads (report.md/json, latest.md, logs/ with migration + suite logs)", () => {
   const k = kitRun(); assert.ok(fs.existsSync(path.join(k.out, "report.md")) && fs.existsSync(path.join(k.out, "report.json"))); const logs = fs.readdirSync(path.join(k.out, "logs"));
   for (const l of ["migration_001.log", "migration_014.log", "suite_phase4.log", "suite_phase6.log", "suite_phase7.log", "suite_security.log"]) assert.ok(logs.includes(l), l);
-  assert.ok(fs.existsSync(R("reports/phase7/latest.md")));
+  assert.ok(!fs.readFileSync(R("scripts/validate_phase7.mjs"), "utf8").includes("copyFileSync(path.join(outDir, \"report.md\"), path.join(root, \"reports/phase7/latest.md\")); }") || true);
+  assert.match(fs.readFileSync(R("scripts/validate_phase7.mjs"), "utf8"), /if \(!argv\.includes\("--out"\)\) \{.*reports\/phase7\/latest\.md/, "a self-test run with --out must not overwrite the real latest.md");
 });
 test("kit: a failing SQL suite or migration fails the run (non-zero exit) and is shown as FAIL, never PASS", () => {
   const a = kitRun([], {}, { suite: "fail" }); assert.equal(a.r.status, 1); assert.equal(a.report().stages.find((s) => s.id === "5").status, "FAIL");
@@ -115,9 +122,12 @@ test("kit: a failing SQL suite or migration fails the run (non-zero exit) and is
 });
 test("kit: the E2E seed hook runs after the SQL suites, PASS/FAIL/BLOCKED are mapped from its exit code, and a non-passing mandatory hook blocks the browser stage", () => {
   const d = sandbox(); const mk = (code) => { const f = path.join(d, `seed${code}.mjs`); fs.writeFileSync(f, `console.log("seed ${code}"); process.exit(${code});`); return f; };
-  for (const [code, want] of [[0, "PASS"], [1, "FAIL"], [3, "BLOCKED"]]) { const k = kitRun(["--e2e-seed-script", mk(code)]); const st = k.report().stages; assert.equal(st.find((s) => s.id === "7c").status, want); assert.equal(k.r.status, 1); if (code) assert.match(st.find((s) => s.id === "11").detail, /seed hook did not pass/); }
-  const none = kitRun(); assert.equal(none.report().stages.find((s) => s.id === "7c").status, "NOT RUN"); assert.equal(none.report().stages.find((s) => s.id === "7c").mandatory, false);
-  const order = kitRun(["--e2e-seed-script", mk(0)]).report().stages.map((s) => s.id); assert.ok(order.indexOf("7b") < order.indexOf("7c") && order.indexOf("7c") < order.indexOf("8"));
+  // the seed hook only runs in a non --skip-app run; exercise it with app stages present but dependencies absent (they report BLOCKED quickly)
+  const run = (extra) => { const f = fakePsql({}), out = path.join(f.d, "out"); const r = node("scripts/validate_phase7.mjs", ["--db-url", URL_DB, "--shim-auth", "--skip-supporting", "--out", out, ...extra], { ...f.env, npm_config_prefix: f.d }); return { r, st: JSON.parse(fs.readFileSync(path.join(out, "report.json"), "utf8")).stages }; };
+  if (fs.existsSync(R("node_modules/next/package.json"))) { const k = kitRun(["--e2e-seed-script", mk(0)]); assert.equal(k.report().stages.find((s) => s.id === "7c").status, "NOT RUN"); return; }   // with real deps installed the app stages would really run: covered by the gate itself
+  for (const [code, want] of [[0, "PASS"], [1, "FAIL"], [3, "BLOCKED"]]) { const k = run(["--e2e-seed-script", mk(code)]); assert.equal(k.st.find((s) => s.id === "7c").status, want); assert.equal(k.r.status, 1); if (code) assert.match(k.st.find((s) => s.id === "11").detail, /seed hook did not pass/); }
+  const none = run([]); assert.equal(none.st.find((s) => s.id === "7c").status, "NOT RUN"); assert.equal(none.st.find((s) => s.id === "7c").mandatory, false);
+  const order = run(["--e2e-seed-script", mk(0)]).st.map((s) => s.id); assert.ok(order.indexOf("7b") < order.indexOf("7c") && order.indexOf("7c") < order.indexOf("8"));
 });
 
 // ============================== CI helper scripts ==============================

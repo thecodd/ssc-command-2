@@ -20,7 +20,7 @@ function Notices() {
     <div className="space-y-2 empty:hidden">
       {other && state.phase === "idle" && (
         <div role="status" className="flex items-start gap-3 rounded-ctl border border-line bg-surface p-3 text-sm">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-violet" aria-hidden />
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-violet-fg" aria-hidden />
           <p className="min-w-0 flex-1 text-sub">You&apos;re timing <Link data-inline href={studyHref(other.type, other.entityId)} className="text-ink underline">{other.title ?? "another item"}</Link>. Starting here closes that session and keeps its time.</p>
         </div>
       )}
@@ -81,7 +81,7 @@ export function StudyFocusCard(p: FocusCardProps) {
         </dl>
         {e.seconds < LEARNING.minCountedSessionSeconds && <p className="text-xs text-mute">Sessions under {LEARNING.minCountedSessionSeconds} seconds aren&apos;t counted toward your session total.</p>}
         <ConfidenceScale value={confidence} disabled={pendingKeys.has("progress")} onPick={(n) => void progress.setProgress({ confidence: n })} legend={confidence ? "Confidence now" : "How confident are you now?"} />
-        <p className="text-sm text-sub"><RefreshCw className="mr-1.5 inline h-4 w-4 text-violet" aria-hidden />{revisionLabel}</p>
+        <p className="text-sm text-sub"><RefreshCw className="mr-1.5 inline h-4 w-4 text-violet-fg" aria-hidden />{revisionLabel}</p>
         <div className={`rounded-card border p-4 ${toneCls[step.tone]}`}>
           <p className="text-xs uppercase tracking-widest text-sub">Next</p>
           <p className="mt-1 text-lg font-semibold">{step.title}</p>

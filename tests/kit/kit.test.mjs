@@ -84,7 +84,9 @@ test("verdict: READY only when every mandatory stage PASSED; BLOCKED / NOT RUN /
   r = mk(); r.add({ id: "1", title: "a", status: "PASS" }); r.add({ id: "S", title: "s", category: "SUPPORTING", mandatory: false, status: "FAIL" }); assert.equal(r.verdict().ready, false, "a failing supporting stage still blocks readiness");
 });
 test("entry point in THIS environment: ends with NOT READY, never PASSes a stage it could not execute, and exits non-zero", () => {
-  const out = cp.spawnSync(process.execPath, [path.join(root, "scripts/validate_phase7.mjs"), "--skip-supporting", "--out", fs.mkdtempSync(path.join(os.tmpdir(), "out-"))], { cwd: root, encoding: "utf8", env: { ...process.env, VALIDATE_DATABASE_URL: "" } });
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(DATABASE_URL|VALIDATE_\w+|NEXT_PUBLIC_\w+|E2E_\w+)$/.test(k)));
+  const out = cp.spawnSync(process.execPath, [path.join(root, "scripts/validate_phase7.mjs"), "--skip-supporting", "--skip-app", "--out", fs.mkdtempSync(path.join(os.tmpdir(), "out-"))], { cwd: root, encoding: "utf8", env, timeout: 120000 });
   assert.equal(out.status, 1); assert.equal(out.stdout.trim().split("\n").at(-1), "NOT READY FOR PHASE 8");
-  if (!fs.existsSync(path.join(root, "node_modules/next"))) { assert.match(out.stdout, /\[BLOCKED \] 2 Dependency check/); assert.match(out.stdout, /\[BLOCKED \] 8 Typecheck/); assert.match(out.stdout, /\[BLOCKED \] 10 Production build/); assert.match(out.stdout, /\[BLOCKED \] 11 Real browser/); }
+  for (const s of ["8 Typecheck", "9 Lint", "10 Production build", "11 Real browser", "11b Accessibility"]) assert.match(out.stdout, new RegExp(`\\[NOT RUN \\] ${s}`), s);
+  if (!fs.existsSync(path.join(root, "node_modules/next"))) assert.match(out.stdout, /\[BLOCKED \] 2 Dependency check/);
 });

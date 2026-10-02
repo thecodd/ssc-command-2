@@ -14,7 +14,7 @@ export function SummaryView({ v, title }: { v: View; title: string }) {
         <div>
           <h2 className="mb-2 font-semibold">Weak areas</h2>
           <ul className="space-y-2">{v.weak.map((w) => <li key={w.topicId}><Link href={w.href} className="card flex min-h-[56px] items-center justify-between gap-3 px-4 py-3 hover:border-mute"><span className="min-w-0"><span className="block truncate">{w.title}</span><span className="text-xs text-mute">{w.note}</span></span><span className="text-sm text-lime">Study</span></Link></li>)}</ul>
-          {v.revisionNote && <p className="mt-3 flex items-center gap-2 text-sm text-sub"><RefreshCw className="h-4 w-4 text-violet" aria-hidden />{v.revisionNote}</p>}
+          {v.revisionNote && <p className="mt-3 flex items-center gap-2 text-sm text-sub"><RefreshCw className="h-4 w-4 text-violet-fg" aria-hidden />{v.revisionNote}</p>}
         </div>
       )}
       <div className="flex flex-col gap-2 sm:flex-row">

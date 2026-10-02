@@ -15,6 +15,7 @@ const flag = (n) => argv.includes(n), val = (n, d) => { const i = argv.indexOf(n
 const flags = { shimAuth: flag("--shim-auth"), reset: flag("--reset"), allowRemote: flag("--allow-remote"), forceIKnow: flag("--force-i-understand-this-may-destroy-data") };
 if (flag("--help")) { console.log(fs.readFileSync(path.join(root, "docs/VALIDATION_KIT.md"), "utf8").split("\n").slice(0, 60).join("\n")); process.exit(0); }
 const dbUrl = val("--db-url", process.env.VALIDATE_DATABASE_URL || "");
+const SKIP_APP = flag("--skip-app");   // ONLY for the kit's own self-tests (tests/kit): seed hook and app stages become NOT RUN, so the verdict can never be READY
 const seedScript = val("--e2e-seed-script", process.env.VALIDATE_E2E_SEED_SCRIPT || "");   // optional hook: creates the E2E user + CI-only fixtures (e.g. scripts/ci/seed_e2e.mjs)
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outDir = path.resolve(val("--out", path.join(root, "reports/phase7", stamp)));
@@ -85,7 +86,8 @@ if (dbReady && !flag("--skip-supporting")) {
 // ------------------------------------------------------------------ 7c optional E2E seed hook (CI-only fixtures; runs AFTER the SQL suites so it cannot influence them)
 {
   const id = "7c", title = "E2E seed hook (CI-only user + fixtures for the real-browser stage)";
-  if (!seedScript) R.add({ id, title, mandatory: false, status: STATUS.NOT_RUN, detail: "no seed hook configured (--e2e-seed-script / VALIDATE_E2E_SEED_SCRIPT): seed the E2E user's data manually" });
+  if (SKIP_APP) R.add({ id, title, mandatory: false, status: STATUS.NOT_RUN, detail: "skipped by --skip-app (kit self-test run)" });
+  else if (!seedScript) R.add({ id, title, mandatory: false, status: STATUS.NOT_RUN, detail: "no seed hook configured (--e2e-seed-script / VALIDATE_E2E_SEED_SCRIPT): seed the E2E user's data manually" });
   else if (!dbReady) R.add({ id, title, status: STATUS.BLOCKED, detail: "requires a validated database (stage 4b)" });
   else if (!fs.existsSync(path.resolve(root, seedScript))) R.add({ id, title, status: STATUS.FAIL, detail: `seed script not found: ${seedScript}` });
   else {
@@ -96,6 +98,7 @@ if (dbReady && !flag("--skip-supporting")) {
 }
 // ------------------------------------------------------------------ 8-10 typecheck / lint / build (REAL commands only)
 const npmStage = (id, title, script) => {
+  if (SKIP_APP) return R.add({ id, title, status: STATUS.NOT_RUN, detail: "skipped by --skip-app (kit self-test run; never a gate run)" });
   if (!depsReady) return R.add({ id, title, status: STATUS.BLOCKED, detail: "BLOCKED - dependencies unavailable (stage 2). No stub is substituted." });
   const r = run("npm", ["run", script], { env: { NEXT_TELEMETRY_DISABLED: "1" } }); const lf = log(`${script}.log`, `$ npm run ${script}\nexit=${r.code} ${r.ms}ms\n${r.stdout}\n${r.stderr}`);
   const errs = (r.stdout + r.stderr).match(/error TS\d+/g)?.length;
@@ -107,6 +110,7 @@ buildOk = npmStage("10", "Production build (npm run build)", "build").status ===
 
 // ------------------------------------------------------------------ 11 real browser + accessibility against the running app
 async function realBrowser() {
+  if (SKIP_APP) { for (const [id, title] of [["11", "Real browser validation (real routes, 5 viewports)"], ["11b", "Accessibility checks on the real app"]]) R.add({ id, title, status: STATUS.NOT_RUN, detail: "skipped by --skip-app (kit self-test run; never a gate run)" }); return; }
   const blockers = [];
   if (!buildOk) blockers.push("production build did not pass (stage 10)");
   if (!dbReady) blockers.push("no validated database (stage 4b)");
@@ -167,7 +171,7 @@ md.push("## SQL suites", "", mdTable(R.stages.filter((s) => ["5", "6", "7", "7b"
 for (const s of R.stages.filter((x) => x.items.length && !["4b", "3"].includes(x.id))) md.push(`### ${s.id} ${s.title}`, "", ...s.items.slice(0, 200).map((i) => `- ${i}`), "");
 md.push("## Why the verdict is what it is", "", v.ready ? "Every mandatory stage executed and passed." : v.notPass.map((s) => `- stage ${s.id} ${s.title}: **${s.status}** (${s.detail.split("\n")[0].slice(0, 200)})`).join("\n"), "");
 fs.writeFileSync(path.join(outDir, "report.md"), md.join("\n")); fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify({ stamp, verdict: v.ready ? "READY FOR PHASE 8" : "NOT READY FOR PHASE 8", stages: R.stages }, null, 1));
-fs.mkdirSync(path.join(root, "reports/phase7"), { recursive: true }); fs.copyFileSync(path.join(outDir, "report.md"), path.join(root, "reports/phase7/latest.md"));
+if (!argv.includes("--out")) { fs.mkdirSync(path.join(root, "reports/phase7"), { recursive: true }); fs.copyFileSync(path.join(outDir, "report.md"), path.join(root, "reports/phase7/latest.md")); }   // runs with an explicit --out (self-tests) never touch latest.md
 R.add({ id: "12", title: "Report generation", status: STATUS.PASS, detail: path.relative(root, path.join(outDir, "report.md")) });
 console.log(`\nReport: ${path.relative(root, path.join(outDir, "report.md"))}`);
 console.log(v.ready ? "READY FOR PHASE 8" : "NOT READY FOR PHASE 8");

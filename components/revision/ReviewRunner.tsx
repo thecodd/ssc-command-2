@@ -91,7 +91,7 @@ export function ReviewRunner(p: ReviewRunnerProps) {
     {shell(
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0 space-y-8">
-          <div><p className="text-sm text-sub">{p.subject}</p><h1 className="mt-1 break-words text-3xl font-bold tracking-tight">{p.title}</h1><p className="mt-2 text-sm"><span className={p.overdue ? "text-violet" : "text-lime"}>{p.dueText}</span><span className="text-mute"> · Revision {p.reviewNo}</span></p></div>
+          <div><p className="text-sm text-sub">{p.subject}</p><h1 className="mt-1 break-words text-3xl font-bold tracking-tight">{p.title}</h1><p className="mt-2 text-sm"><span className={p.overdue ? "text-violet-fg" : "text-lime"}>{p.dueText}</span><span className="text-mute"> · Revision {p.reviewNo}</span></p></div>
 
           {recall ? (
             <section aria-labelledby="recall-h" className="space-y-4">

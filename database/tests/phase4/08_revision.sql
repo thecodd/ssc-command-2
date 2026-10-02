@@ -71,15 +71,22 @@ select pg_temp.check_('008 invalid ladder (over 365 days) rejected', pg_temp.row
 select pg_temp.check_('008 invalid ladder (empty) rejected', pg_temp.rows_as('@A@', $$update profiles set revision_intervals = '{}' where id = '@A@'$$) = -1);
 create temp table t_hist as select id, rating, step_before, step_after, interval_days_after from revision_reviews where user_id = '@A@' order by id;
 select pg_temp.check_('008 a valid custom ladder {2,5,9} is accepted', pg_temp.rows_as('@A@', $$update profiles set revision_intervals = '{2,5,9}' where id = '@A@'$$) = 1);
+-- A NEW schedule needs an item with no open revision. T2 has had one since 007 (it was completed there, and completing an already-scheduled item never
+-- reschedules, by design), so re-completing T2 cannot test this; the first completion of ST2 does. The assertion is the same: the seeded schedule uses the custom ladder.
+select pg_temp.check_('008 precondition: ST2 has no revision yet', (select count(*) from revision_schedule where user_id = '@A@' and entity_id = '@ST2@') = 0);
 select pg_temp.rows_as('@A@', $$select public.set_progress('ssc_topic', '@T2@', 'completed')$$);
-select pg_temp.check_('008 new schedule uses the custom ladder (due +2)', (select due_date from revision_schedule where user_id = '@A@' and entity_id = '@T2@' and not done) = date '2026-10-03');
+select pg_temp.rows_as('@A@', $$select public.set_progress('ssc_subtopic', '@ST2@', 'completed')$$);
+select pg_temp.check_('008 new schedule uses the custom ladder (due +2)', (select due_date from revision_schedule where user_id = '@A@' and entity_id = '@ST2@' and not done) = date '2026-10-03',
+  (select format('due=%s step=%s interval=%s reason=%s today=%s ladder=%s', due_date, step, interval_days, reason, public.user_today('@A@'), public._ladder('@A@')) from revision_schedule where user_id = '@A@' and entity_id = '@ST2@' and not done));
+select pg_temp.check_('008 re-completing T2, which already had an open revision, kept exactly that one open revision', (select count(*) = 1 from revision_schedule where user_id = '@A@' and entity_id = '@T2@' and not done));
 select pg_temp.rows_as('@A@', format($f$select public.review_revision(%L, 'good', 0)$f$, (select id from revision_schedule where user_id = '@A@' and entity_id = '@T2@' and not done)));
 select pg_temp.check_('008 good on the custom ladder: step 1, due +5', (select step || '|' || due_date from revision_schedule where user_id = '@A@' and entity_id = '@T2@' and not done) = '1|2026-10-06');
 select pg_temp.check_('008 changing the ladder did not rewrite earlier history', (select count(*) from t_hist h join revision_reviews v on v.id = h.id where v.rating = h.rating and v.step_before is not distinct from h.step_before and v.step_after is not distinct from h.step_after and v.interval_days_after is not distinct from h.interval_days_after) = (select count(*) from t_hist));
 -- manual schedule + weakness helper
 select pg_temp.check_('008 manual revision needs a started item', pg_temp.rows_as('@B@', $$select public.schedule_revision('ssc_topic', '@T3@')$$) = -1);
 select pg_temp.rows_as('@A@', $$select public.set_progress('ssc_subtopic', '@ST1@', 'learning', 30)$$);
-select pg_temp.check_('008 manual revision on a started item opens one due today (reason manual)', pg_temp.rows_as('@A@', $$select public.schedule_revision('ssc_subtopic', '@ST1@')$$) = 1
+insert into t_ret select 'manual_st1', pg_temp.rows_as('@A@', $$select public.schedule_revision('ssc_subtopic', '@ST1@')$$);
+select pg_temp.check_('008 manual revision on a started item opens one due today (reason manual)', (select n from t_ret where k = 'manual_st1') = 1
   and (select due_date || '|' || reason from revision_schedule where user_id = '@A@' and entity_id = '@ST1@' and not done) = '2026-10-01|manual');
 select pg_temp.owner_try($$select public._open_weakness_revision('@A@', 'ssc_topic', '@T2@')$$);
 select pg_temp.check_('008 weakness pulls an open revision forward to today (reason weakness)', (select due_date || '|' || reason from revision_schedule where user_id = '@A@' and entity_id = '@T2@' and not done) = '2026-10-01|weakness');

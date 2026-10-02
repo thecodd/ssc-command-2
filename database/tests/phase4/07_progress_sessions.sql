@@ -106,12 +106,34 @@ select pg_temp.rows_as('@A@', format($f$select public.study_finish(%L)$f$, (sele
 select pg_temp.check_('007 studying a focus item completes its task for today', (select status::text from tasks where id = '@TASK1@') = 'completed');
 select pg_temp.check_('007 streak advanced to 8 for the next local day', (select streak_count || '|' || last_study_date from profiles where id = '@A@') = '8|2026-10-02');
 -- midnight: a session crossing local midnight counts for BOTH days (Kolkata: 23:50 on Oct 3 -> 00:20 on Oct 4)
+-- Run #3 showed why the first version of this scenario failed: it sent ONE heartbeat 29.5 minutes after the start. Any session silent for more than lc_stale_seconds
+-- (600 s) is closed by _recover_stale() as ABANDONED with credit up to its last sign of life + lc_stale_credit_seconds (90 s) - which is the intended rule
+-- (the app heartbeats every LEARNING.heartbeatSeconds, far below 600 s). The scenario now behaves like a real client: heartbeats every 9 minutes.
+-- The expectations are unchanged: 1800 s credited and the streak touched on BOTH local days (3 -> 5).
 update profiles set last_study_date = date '2026-10-02', streak_count = 3 where id = '@A@';
-select pg_temp.set_now('2026-10-03 18:20:00+00');
+select pg_temp.set_now('2026-10-03 18:20:00+00');                                       -- 23:50 Oct 3 in Asia/Kolkata
 select pg_temp.rows_as('@A@', $$select public.study_start('ssc_topic', '@T2@')$$);
-select pg_temp.set_now('2026-10-03 18:49:30+00');
-select pg_temp.rows_as('@A@', format($f$select public.study_heartbeat(%L)$f$, (select id from study_sessions where user_id = '@A@' and state = 'active')));
-select pg_temp.set_now('2026-10-03 18:50:00+00');
-select pg_temp.check_('007 midnight-crossing session credits 1800 s', pg_temp.val_as('@A@', format($f$select public.study_finish(%L) ->> 'seconds'$f$, (select id from study_sessions where user_id = '@A@' and state = 'active'))) = '1800');
+insert into t_runs (k, id) select 'mid', id from study_sessions where user_id = '@A@' and state = 'active';
+select pg_temp.set_now('2026-10-03 18:29:00+00'); select pg_temp.rows_as('@A@', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid')));
+select pg_temp.set_now('2026-10-03 18:38:00+00'); select pg_temp.rows_as('@A@', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid')));
+select pg_temp.set_now('2026-10-03 18:47:00+00'); select pg_temp.rows_as('@A@', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid')));
+select pg_temp.set_now('2026-10-03 18:49:30+00'); select pg_temp.rows_as('@A@', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid')));
+select pg_temp.check_('007 midnight scenario: the session is still ACTIVE after regular heartbeats (not swept as stale)', (select state::text from study_sessions where id = (select id from t_runs where k = 'mid')) = 'active',
+  (select format('state=%s started_at=%s active_since=%s last_heartbeat_at=%s accumulated=%s', state, started_at, active_since, last_heartbeat_at, accumulated_seconds) from study_sessions where id = (select id from t_runs where k = 'mid')));
+select pg_temp.set_now('2026-10-03 18:50:00+00');                                       -- 00:20 Oct 4 in Asia/Kolkata
+insert into t_ret select 'mid_finish', (pg_temp.val_as('@A@', format($f$select public.study_finish(%L) ->> 'seconds'$f$, (select id from t_runs where k = 'mid'))))::bigint;
+select pg_temp.check_('007 midnight-crossing session credits 1800 s', (select n from t_ret where k = 'mid_finish') = 1800,
+  (select format('returned=%s state=%s seconds=%s started_at=%s ended_at=%s tz=%s start_day=%s end_day=%s', (select n from t_ret where k = 'mid_finish'), s.state, s.seconds, s.started_at, s.ended_at, public._user_tz(s.user_id),
+          (s.started_at at time zone public._user_tz(s.user_id))::date, (s.ended_at at time zone public._user_tz(s.user_id))::date) from study_sessions s where s.id = (select id from t_runs where k = 'mid')));
+select pg_temp.check_('007 midnight regression: the session started on local Oct 3 and ended on local Oct 4 (Asia/Kolkata)', (select (started_at at time zone public._user_tz(user_id))::date || '|' || (ended_at at time zone public._user_tz(user_id))::date from study_sessions where id = (select id from t_runs where k = 'mid')) = '2026-10-03|2026-10-04');
 select pg_temp.check_('007 ... and extends the streak across both local days (3 -> 5, last day Oct 4)', (select streak_count || '|' || last_study_date from profiles where id = '@A@') = '5|2026-10-04');
+-- and the stale rule itself, at the same midnight: ONE heartbeat after 29.5 silent minutes is too late; the session is closed as abandoned with 90 s credit (start day only)
+update profiles set last_study_date = date '2026-10-03', streak_count = 7 where id = '@A@';
+select pg_temp.set_now('2026-10-04 18:20:00+00');
+select pg_temp.rows_as('@A@', $$select public.study_start('ssc_topic', '@T2@')$$);
+insert into t_runs (k, id) select 'mid_stale', id from study_sessions where user_id = '@A@' and state = 'active';
+select pg_temp.set_now('2026-10-04 18:49:30+00');
+select pg_temp.rows_as('@A@', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid_stale')));
+select pg_temp.check_('007 midnight regression: a session silent for 29.5 min is swept as ABANDONED with exactly 90 s credit (lc_stale_credit_seconds)', (select state::text || '|' || seconds from study_sessions where id = (select id from t_runs where k = 'mid_stale')) = 'abandoned|90');
+select pg_temp.check_('007 midnight regression: that abandoned session only touched its START day (streak 7 -> 8 for Oct 4)', (select streak_count || '|' || last_study_date from profiles where id = '@A@') = '8|2026-10-04');
 select pg_temp.set_now('2026-10-01 12:00:00+00');

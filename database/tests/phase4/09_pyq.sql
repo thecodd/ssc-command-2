@@ -11,7 +11,8 @@ select pg_temp.check_('009 content_hash is filled automatically', (select conten
 select pg_temp.check_('009 subtopic link requires the PYQ to be linked to its topic', pg_temp.owner_try($$insert into pyq_subtopics (pyq_id, ssc_topic_id, ssc_subtopic_id) values ('@Q3@', '@T2@', '@ST2@')$$) = 1);
 select pg_temp.check_('009 subtopic link without a topic link rejected', pg_temp.owner_try($$insert into pyq_subtopics (pyq_id, ssc_topic_id, ssc_subtopic_id) values ('@Q2@', '@T2@', '@ST2@')$$) = -1);
 select pg_temp.check_('009 subtopic that belongs to another topic rejected', pg_temp.owner_try($$insert into pyq_subtopics (pyq_id, ssc_topic_id, ssc_subtopic_id) values ('@Q1@', '@T1@', '@ST2@')$$) = -1);
-select pg_temp.check_('009 unlinking the topic cascades the subtopic link', pg_temp.owner_try($$delete from pyq_topics where pyq_id = '@Q3@' and ssc_topic_id = '@T2@'$$) = 1 and (select count(*) from pyq_subtopics where pyq_id = '@Q3@') = 0);
+insert into t_ret select 'unlink_q3', pg_temp.owner_try($$delete from pyq_topics where pyq_id = '@Q3@' and ssc_topic_id = '@T2@'$$);
+select pg_temp.check_('009 unlinking the topic cascades the subtopic link', (select n from t_ret where k = 'unlink_q3') = 1 and (select count(*) from pyq_subtopics where pyq_id = '@Q3@') = 0);
 insert into pyq_topics (pyq_id, ssc_topic_id) values ('@Q3@', '@T2@');
 -- attempts are not client-writable
 select pg_temp.check_('009 direct INSERT into pyq_attempts denied', pg_temp.rows_as('@A@', $$insert into pyq_attempts (user_id, pyq_id, is_correct) values ('@A@', '@Q1@', true)$$) = -1);
@@ -56,7 +57,8 @@ insert into t_runs select 'ps2', (select id from practice_sessions where user_id
 select pg_temp.check_('009 candidates put never-attempted first, then last-wrong, then last-correct', (select (pyq_ids)[array_length(pyq_ids,1)]::text from practice_sessions where id = (select id from t_runs where k = 'ps2')) = '@Q1@');
 select pg_temp.rows_as('@A@', format($f$select public.submit_pyq_answer(%L, %L, 'B', 5)$f$, (select id from t_runs where k = 'ps2'), q)) from unnest(array['@Q2@','@Q4@','@Q5@','@Q6@','@Q7@']::uuid[]) q;
 select pg_temp.check_('009 5 wrong answers recorded in session two', (select count(*) filter (where not is_correct) from pyq_attempts where session_id = (select id from t_runs where k = 'ps2')) = 5);
-select pg_temp.check_('009 finish names the weak topic and opens a revision today', pg_temp.val_as('@A@', format($f$select jsonb_array_length(public.finish_practice(%L) -> 'weak_topics')$f$, (select id from t_runs where k = 'ps2'))) = '1'
+insert into t_ret select 'ps2_weak', (pg_temp.val_as('@A@', format($f$select jsonb_array_length(public.finish_practice(%L) -> 'weak_topics')$f$, (select id from t_runs where k = 'ps2'))))::bigint;
+select pg_temp.check_('009 finish names the weak topic and opens a revision today', (select n from t_ret where k = 'ps2_weak') = 1
   and (select due_date from revision_schedule where user_id = '@A@' and entity_id = '@T1@' and not done) = date '2026-10-01');
 select pg_temp.check_('009 weak topic is reported weak by the signals RPC', pg_temp.val_as('@A@', $$select mastery from public.user_entity_signals('ssc_topic', '@T1@')$$) = 'weak');
 -- weak scope uses the weak topic's questions only

@@ -277,14 +277,36 @@ select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select 
 select pg_temp.check_('007 studying a focus item completes its task for today', (select status::text from tasks where id = 'b5fd3962-f143-5219-aa5b-afda802ea15c') = 'completed');
 select pg_temp.check_('007 streak advanced to 8 for the next local day', (select streak_count || '|' || last_study_date from profiles where id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4') = '8|2026-10-02');
 -- midnight: a session crossing local midnight counts for BOTH days (Kolkata: 23:50 on Oct 3 -> 00:20 on Oct 4)
+-- Run #3 showed why the first version of this scenario failed: it sent ONE heartbeat 29.5 minutes after the start. Any session silent for more than lc_stale_seconds
+-- (600 s) is closed by _recover_stale() as ABANDONED with credit up to its last sign of life + lc_stale_credit_seconds (90 s) - which is the intended rule
+-- (the app heartbeats every LEARNING.heartbeatSeconds, far below 600 s). The scenario now behaves like a real client: heartbeats every 9 minutes.
+-- The expectations are unchanged: 1800 s credited and the streak touched on BOTH local days (3 -> 5).
 update profiles set last_study_date = date '2026-10-02', streak_count = 3 where id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4';
-select pg_temp.set_now('2026-10-03 18:20:00+00');
+select pg_temp.set_now('2026-10-03 18:20:00+00');                                       -- 23:50 Oct 3 in Asia/Kolkata
 select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select public.study_start('ssc_topic', '21ef5dcf-fc38-5b60-9404-dc99fea1f286')$$);
-select pg_temp.set_now('2026-10-03 18:49:30+00');
-select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.study_heartbeat(%L)$f$, (select id from study_sessions where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and state = 'active')));
-select pg_temp.set_now('2026-10-03 18:50:00+00');
-select pg_temp.check_('007 midnight-crossing session credits 1800 s', pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.study_finish(%L) ->> 'seconds'$f$, (select id from study_sessions where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and state = 'active'))) = '1800');
+insert into t_runs (k, id) select 'mid', id from study_sessions where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and state = 'active';
+select pg_temp.set_now('2026-10-03 18:29:00+00'); select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid')));
+select pg_temp.set_now('2026-10-03 18:38:00+00'); select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid')));
+select pg_temp.set_now('2026-10-03 18:47:00+00'); select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid')));
+select pg_temp.set_now('2026-10-03 18:49:30+00'); select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid')));
+select pg_temp.check_('007 midnight scenario: the session is still ACTIVE after regular heartbeats (not swept as stale)', (select state::text from study_sessions where id = (select id from t_runs where k = 'mid')) = 'active',
+  (select format('state=%s started_at=%s active_since=%s last_heartbeat_at=%s accumulated=%s', state, started_at, active_since, last_heartbeat_at, accumulated_seconds) from study_sessions where id = (select id from t_runs where k = 'mid')));
+select pg_temp.set_now('2026-10-03 18:50:00+00');                                       -- 00:20 Oct 4 in Asia/Kolkata
+insert into t_ret select 'mid_finish', (pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.study_finish(%L) ->> 'seconds'$f$, (select id from t_runs where k = 'mid'))))::bigint;
+select pg_temp.check_('007 midnight-crossing session credits 1800 s', (select n from t_ret where k = 'mid_finish') = 1800,
+  (select format('returned=%s state=%s seconds=%s started_at=%s ended_at=%s tz=%s start_day=%s end_day=%s', (select n from t_ret where k = 'mid_finish'), s.state, s.seconds, s.started_at, s.ended_at, public._user_tz(s.user_id),
+          (s.started_at at time zone public._user_tz(s.user_id))::date, (s.ended_at at time zone public._user_tz(s.user_id))::date) from study_sessions s where s.id = (select id from t_runs where k = 'mid')));
+select pg_temp.check_('007 midnight regression: the session started on local Oct 3 and ended on local Oct 4 (Asia/Kolkata)', (select (started_at at time zone public._user_tz(user_id))::date || '|' || (ended_at at time zone public._user_tz(user_id))::date from study_sessions where id = (select id from t_runs where k = 'mid')) = '2026-10-03|2026-10-04');
 select pg_temp.check_('007 ... and extends the streak across both local days (3 -> 5, last day Oct 4)', (select streak_count || '|' || last_study_date from profiles where id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4') = '5|2026-10-04');
+-- and the stale rule itself, at the same midnight: ONE heartbeat after 29.5 silent minutes is too late; the session is closed as abandoned with 90 s credit (start day only)
+update profiles set last_study_date = date '2026-10-03', streak_count = 7 where id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4';
+select pg_temp.set_now('2026-10-04 18:20:00+00');
+select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select public.study_start('ssc_topic', '21ef5dcf-fc38-5b60-9404-dc99fea1f286')$$);
+insert into t_runs (k, id) select 'mid_stale', id from study_sessions where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and state = 'active';
+select pg_temp.set_now('2026-10-04 18:49:30+00');
+select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.study_heartbeat(%L)$f$, (select id from t_runs where k = 'mid_stale')));
+select pg_temp.check_('007 midnight regression: a session silent for 29.5 min is swept as ABANDONED with exactly 90 s credit (lc_stale_credit_seconds)', (select state::text || '|' || seconds from study_sessions where id = (select id from t_runs where k = 'mid_stale')) = 'abandoned|90');
+select pg_temp.check_('007 midnight regression: that abandoned session only touched its START day (streak 7 -> 8 for Oct 4)', (select streak_count || '|' || last_study_date from profiles where id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4') = '8|2026-10-04');
 select pg_temp.set_now('2026-10-01 12:00:00+00');
 
 -- ============ 008 revision engine ============
@@ -360,15 +382,22 @@ select pg_temp.check_('008 invalid ladder (over 365 days) rejected', pg_temp.row
 select pg_temp.check_('008 invalid ladder (empty) rejected', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$update profiles set revision_intervals = '{}' where id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4'$$) = -1);
 create temp table t_hist as select id, rating, step_before, step_after, interval_days_after from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' order by id;
 select pg_temp.check_('008 a valid custom ladder {2,5,9} is accepted', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$update profiles set revision_intervals = '{2,5,9}' where id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4'$$) = 1);
+-- A NEW schedule needs an item with no open revision. T2 has had one since 007 (it was completed there, and completing an already-scheduled item never
+-- reschedules, by design), so re-completing T2 cannot test this; the first completion of ST2 does. The assertion is the same: the seeded schedule uses the custom ladder.
+select pg_temp.check_('008 precondition: ST2 has no revision yet', (select count(*) from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'eebfdd69-ca02-5ff1-ae3f-1cf817ae21e4') = 0);
 select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select public.set_progress('ssc_topic', '21ef5dcf-fc38-5b60-9404-dc99fea1f286', 'completed')$$);
-select pg_temp.check_('008 new schedule uses the custom ladder (due +2)', (select due_date from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286' and not done) = date '2026-10-03');
+select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select public.set_progress('ssc_subtopic', 'eebfdd69-ca02-5ff1-ae3f-1cf817ae21e4', 'completed')$$);
+select pg_temp.check_('008 new schedule uses the custom ladder (due +2)', (select due_date from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'eebfdd69-ca02-5ff1-ae3f-1cf817ae21e4' and not done) = date '2026-10-03',
+  (select format('due=%s step=%s interval=%s reason=%s today=%s ladder=%s', due_date, step, interval_days, reason, public.user_today('eda6c4d2-347b-52c8-92c4-bd428277acd4'), public._ladder('eda6c4d2-347b-52c8-92c4-bd428277acd4')) from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'eebfdd69-ca02-5ff1-ae3f-1cf817ae21e4' and not done));
+select pg_temp.check_('008 re-completing T2, which already had an open revision, kept exactly that one open revision', (select count(*) = 1 from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286' and not done));
 select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'good', 0)$f$, (select id from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286' and not done)));
 select pg_temp.check_('008 good on the custom ladder: step 1, due +5', (select step || '|' || due_date from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286' and not done) = '1|2026-10-06');
 select pg_temp.check_('008 changing the ladder did not rewrite earlier history', (select count(*) from t_hist h join revision_reviews v on v.id = h.id where v.rating = h.rating and v.step_before is not distinct from h.step_before and v.step_after is not distinct from h.step_after and v.interval_days_after is not distinct from h.interval_days_after) = (select count(*) from t_hist));
 -- manual schedule + weakness helper
 select pg_temp.check_('008 manual revision needs a started item', pg_temp.rows_as('7b42fa5b-3c62-526e-9a9f-d6c4926ac3ed', $$select public.schedule_revision('ssc_topic', 'ee476413-2e8e-5c56-bbf5-b6cf5bdb2876')$$) = -1);
 select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select public.set_progress('ssc_subtopic', '4654f3fc-fa66-5d7d-9e71-91c21c483300', 'learning', 30)$$);
-select pg_temp.check_('008 manual revision on a started item opens one due today (reason manual)', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select public.schedule_revision('ssc_subtopic', '4654f3fc-fa66-5d7d-9e71-91c21c483300')$$) = 1
+insert into t_ret select 'manual_st1', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select public.schedule_revision('ssc_subtopic', '4654f3fc-fa66-5d7d-9e71-91c21c483300')$$);
+select pg_temp.check_('008 manual revision on a started item opens one due today (reason manual)', (select n from t_ret where k = 'manual_st1') = 1
   and (select due_date || '|' || reason from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '4654f3fc-fa66-5d7d-9e71-91c21c483300' and not done) = '2026-10-01|manual');
 select pg_temp.owner_try($$select public._open_weakness_revision('eda6c4d2-347b-52c8-92c4-bd428277acd4', 'ssc_topic', '21ef5dcf-fc38-5b60-9404-dc99fea1f286')$$);
 select pg_temp.check_('008 weakness pulls an open revision forward to today (reason weakness)', (select due_date || '|' || reason from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286' and not done) = '2026-10-01|weakness');
@@ -393,7 +422,8 @@ select pg_temp.check_('009 content_hash is filled automatically', (select conten
 select pg_temp.check_('009 subtopic link requires the PYQ to be linked to its topic', pg_temp.owner_try($$insert into pyq_subtopics (pyq_id, ssc_topic_id, ssc_subtopic_id) values ('538b4267-45b8-521c-afd0-73e417e5dccc', '21ef5dcf-fc38-5b60-9404-dc99fea1f286', 'eebfdd69-ca02-5ff1-ae3f-1cf817ae21e4')$$) = 1);
 select pg_temp.check_('009 subtopic link without a topic link rejected', pg_temp.owner_try($$insert into pyq_subtopics (pyq_id, ssc_topic_id, ssc_subtopic_id) values ('07eb48c9-f9a3-509c-b73e-b75054a43319', '21ef5dcf-fc38-5b60-9404-dc99fea1f286', 'eebfdd69-ca02-5ff1-ae3f-1cf817ae21e4')$$) = -1);
 select pg_temp.check_('009 subtopic that belongs to another topic rejected', pg_temp.owner_try($$insert into pyq_subtopics (pyq_id, ssc_topic_id, ssc_subtopic_id) values ('6923f5c9-c73b-50f3-aef9-ac779ca167bf', 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e', 'eebfdd69-ca02-5ff1-ae3f-1cf817ae21e4')$$) = -1);
-select pg_temp.check_('009 unlinking the topic cascades the subtopic link', pg_temp.owner_try($$delete from pyq_topics where pyq_id = '538b4267-45b8-521c-afd0-73e417e5dccc' and ssc_topic_id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286'$$) = 1 and (select count(*) from pyq_subtopics where pyq_id = '538b4267-45b8-521c-afd0-73e417e5dccc') = 0);
+insert into t_ret select 'unlink_q3', pg_temp.owner_try($$delete from pyq_topics where pyq_id = '538b4267-45b8-521c-afd0-73e417e5dccc' and ssc_topic_id = '21ef5dcf-fc38-5b60-9404-dc99fea1f286'$$);
+select pg_temp.check_('009 unlinking the topic cascades the subtopic link', (select n from t_ret where k = 'unlink_q3') = 1 and (select count(*) from pyq_subtopics where pyq_id = '538b4267-45b8-521c-afd0-73e417e5dccc') = 0);
 insert into pyq_topics (pyq_id, ssc_topic_id) values ('538b4267-45b8-521c-afd0-73e417e5dccc', '21ef5dcf-fc38-5b60-9404-dc99fea1f286');
 -- attempts are not client-writable
 select pg_temp.check_('009 direct INSERT into pyq_attempts denied', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$insert into pyq_attempts (user_id, pyq_id, is_correct) values ('eda6c4d2-347b-52c8-92c4-bd428277acd4', '6923f5c9-c73b-50f3-aef9-ac779ca167bf', true)$$) = -1);
@@ -438,7 +468,8 @@ insert into t_runs select 'ps2', (select id from practice_sessions where user_id
 select pg_temp.check_('009 candidates put never-attempted first, then last-wrong, then last-correct', (select (pyq_ids)[array_length(pyq_ids,1)]::text from practice_sessions where id = (select id from t_runs where k = 'ps2')) = '6923f5c9-c73b-50f3-aef9-ac779ca167bf');
 select pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.submit_pyq_answer(%L, %L, 'B', 5)$f$, (select id from t_runs where k = 'ps2'), q)) from unnest(array['07eb48c9-f9a3-509c-b73e-b75054a43319','bbf4509c-6180-5df9-8dc6-41d6d3cf37e3','f91a7dac-253b-5710-8062-f0bea3f8c3c3','9d77b95e-046a-5f4d-8e05-058589c66c72','5cd3162d-11d4-5516-9b8c-d7e51b512b7e']::uuid[]) q;
 select pg_temp.check_('009 5 wrong answers recorded in session two', (select count(*) filter (where not is_correct) from pyq_attempts where session_id = (select id from t_runs where k = 'ps2')) = 5);
-select pg_temp.check_('009 finish names the weak topic and opens a revision today', pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select jsonb_array_length(public.finish_practice(%L) -> 'weak_topics')$f$, (select id from t_runs where k = 'ps2'))) = '1'
+insert into t_ret select 'ps2_weak', (pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select jsonb_array_length(public.finish_practice(%L) -> 'weak_topics')$f$, (select id from t_runs where k = 'ps2'))))::bigint;
+select pg_temp.check_('009 finish names the weak topic and opens a revision today', (select n from t_ret where k = 'ps2_weak') = 1
   and (select due_date from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e' and not done) = date '2026-10-01');
 select pg_temp.check_('009 weak topic is reported weak by the signals RPC', pg_temp.val_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', $$select mastery from public.user_entity_signals('ssc_topic', 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e')$$) = 'weak');
 -- weak scope uses the weak topic's questions only

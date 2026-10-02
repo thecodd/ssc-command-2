@@ -147,6 +147,33 @@ test("api_gateway: routes /auth/v1 to GoTrue and /rest/v1 to PostgREST (prefix s
   } finally { g.close(); p.close(); gw.close(); }
   const gw2 = createGateway({ gotrue: "http://127.0.0.1:1", postgrest: "http://127.0.0.1:1" }), p2 = await listen(gw2); try { const r = await fetch(`http://127.0.0.1:${p2}/rest/v1/x`); assert.equal(r.status, 502); assert.match((await r.json()).message, /upstream unavailable/); } finally { gw2.close(); }
 });
+test("api_gateway CORS (run #3 regression): upstream Access-Control-* headers are dropped; a browser-style POST gets exactly ONE Allow-Origin equal to the request Origin; Vary keeps Origin; status, body and other headers preserved", async () => {
+  const up = http.createServer((q, s) => { let b = ""; q.on("data", (c) => (b += c)); q.on("end", () => {
+    s.writeHead(q.url.startsWith("/token") ? 200 : 418, { "content-type": "application/json", "Access-Control-Allow-Origin": "*", "access-control-allow-origin": q.headers.origin || "x", "access-control-allow-credentials": "true", "Access-Control-Expose-Headers": "X-Up", vary: "Accept-Encoding", "x-upstream": "gotrue", "set-cookie": ["a=1", "b=2"] });
+    s.end(JSON.stringify({ got: b })); }); });
+  const upP = await listen(up), gw = createGateway({ gotrue: `http://127.0.0.1:${upP}`, postgrest: `http://127.0.0.1:${upP}` }), gwP = await listen(gw);
+  const raw = (method, pathname, headers = {}, body) => new Promise((res, rej) => { const r = http.request({ host: "127.0.0.1", port: gwP, method, path: pathname, headers }, (x) => { let d = ""; x.on("data", (c) => (d += c)); x.on("end", () => res({ status: x.statusCode, raw: x.rawHeaders, body: d })); }); r.on("error", rej); if (body) r.write(body); r.end(); });
+  const all = (raw, name) => { const out = []; for (let i = 0; i < raw.length; i += 2) if (raw[i].toLowerCase() === name) out.push(raw[i + 1]); return out; };
+  const ORIGIN = "http://127.0.0.1:3100";
+  try {
+    const post = await raw("POST", "/auth/v1/token?grant_type=password", { origin: ORIGIN, "content-type": "application/json", apikey: "k" }, '{"email":"a"}');
+    assert.equal(post.status, 200); assert.deepEqual(all(post.raw, "access-control-allow-origin"), [ORIGIN], "exactly one Allow-Origin, equal to the request Origin");
+    for (const h of ["access-control-allow-methods", "access-control-allow-headers", "access-control-expose-headers", "access-control-max-age"]) assert.equal(all(post.raw, h).length, 1, h);
+    assert.equal(all(post.raw, "access-control-allow-credentials").length, 0, "upstream credentials header must not leak through");
+    assert.equal(all(post.raw, "vary").length, 1); assert.match(all(post.raw, "vary")[0], /Accept-Encoding/); assert.match(all(post.raw, "vary")[0], /\bOrigin\b/);
+    assert.deepEqual(all(post.raw, "x-upstream"), ["gotrue"]); assert.deepEqual(all(post.raw, "set-cookie"), ["a=1", "b=2"]); assert.deepEqual(JSON.parse(post.body), { got: '{"email":"a"}' });
+    const other = await raw("GET", "/rest/v1/x", { origin: ORIGIN }); assert.equal(other.status, 418, "upstream status preserved"); assert.deepEqual(all(other.raw, "access-control-allow-origin"), [ORIGIN]);
+    const pre = await raw("OPTIONS", "/auth/v1/token?grant_type=password", { origin: ORIGIN, "access-control-request-method": "POST", "access-control-request-headers": "apikey,authorization,content-type,x-client-info" });
+    assert.equal(pre.status, 204); assert.deepEqual(all(pre.raw, "access-control-allow-origin"), [ORIGIN]); assert.deepEqual(all(pre.raw, "access-control-allow-headers"), ["apikey,authorization,content-type,x-client-info"]);
+    assert.match(all(pre.raw, "access-control-allow-methods")[0], /POST/); assert.match(all(pre.raw, "vary")[0], /Origin/);
+    const noOrigin = await raw("POST", "/auth/v1/token", { "content-type": "application/json" }, "{}"); assert.deepEqual(all(noOrigin.raw, "access-control-allow-origin"), ["*"]);
+  } finally { up.close(); gw.close(); }
+});
+test("api_gateway CORS in REAL Chromium: a cross-origin POST with preflight through the gateway is accepted (fails on the pre-fix gateway)", () => {
+  const r = cp.spawnSync(process.execPath, [R("tests/kit/gateway_cors_browser.mjs")], { cwd: root, encoding: "utf8", timeout: 120000 });
+  if (r.status === 3) { console.log("  (skipped: " + r.stdout.trim() + ")"); return; }
+  assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /^PASS: Chromium accepted/);
+});
 test("wait_for: ready on a listening TCP port and an HTTP 200; times out (ok:false) on a closed port; refuses to treat 5xx as ready", async () => {
   const s = net.createServer((c) => c.end()), tp = await listen(s); assert.equal((await waitFor(`tcp://127.0.0.1:${tp}`, 3)).ok, true); s.close();
   const h = http.createServer((q, r) => { r.writeHead(q.url === "/bad" ? 503 : 200); r.end("x"); }), hp = await listen(h); assert.equal((await waitFor(`http://127.0.0.1:${hp}/ok`, 3)).ok, true); const bad = await waitFor(`http://127.0.0.1:${hp}/bad`, 2); assert.equal(bad.ok, false); assert.match(bad.last, /503/); h.close();

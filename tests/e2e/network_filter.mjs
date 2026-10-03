@@ -25,13 +25,21 @@ export function classifyFailure({ method, url, errorText, headers = {}, base, st
   return { kind: "unexpected", reason: "ERR_ABORTED on a request that is neither an RSC payload nor a server action" };
 }
 /** Attaches the bookkeeping classifyFailure needs to a Playwright page. Returns { isClosing(), setClosing(), onUnexpected(fn), expected[] }. */
-export function trackFailures(page, base, onUnexpected, onExpected = () => {}) {
-  const started = new Map(); let lastNavigationAt = null, closing = false;
-  page.on("request", (r) => { started.set(r, Date.now()); if (r.isNavigationRequest() && r.frame() === page.mainFrame()) lastNavigationAt = Date.now(); });
+const isServerAction = (r) => r.method() === "POST" && Object.keys(r.headers()).some((h) => h.toLowerCase() === "next-action");
+/** Attaches the bookkeeping classifyFailure needs to a Playwright page. */
+export function trackFailures(page, base, onUnexpected, onExpected = () => {}, onEvidence = () => {}) {
+  const started = new Map(), navs = []; let lastNavigationAt = null, closing = false; const t0 = Date.now();
+  page.on("request", (r) => { started.set(r, Date.now()); if (r.isNavigationRequest() && r.frame() === page.mainFrame()) { lastNavigationAt = Date.now(); navs.push(`+${lastNavigationAt - t0}ms request ${r.url().slice(0, 120)}`); }
+    if (isServerAction(r)) onEvidence(`+${Date.now() - t0}ms action START ${r.url().slice(0, 120)} next-action=${String(r.headers()["next-action"] ?? "").slice(0, 12)}`); });
+  // EVIDENCE ONLY: same-document (History API) navigations are recorded for the lifecycle log but deliberately do NOT explain an abort: a pushState/replaceState
+  // does not cancel in-flight fetches in Chromium, so counting them would hide real defects.
+  page.on("framenavigated", (f) => { if (f === page.mainFrame()) navs.push(`+${Date.now() - t0}ms framenavigated ${f.url().slice(0, 120)}`); });
+  page.on("requestfinished", (r) => { if (isServerAction(r)) onEvidence(`+${Date.now() - t0}ms action END ${r.url().slice(0, 120)}`); });
   page.on("requestfailed", (r) => {
     if (/favicon|_next\/static|\.map$/.test(r.url())) return;
     const c = classifyFailure({ method: r.method(), url: r.url(), errorText: r.failure()?.errorText, headers: r.headers(), base, startedAt: started.get(r), failedAt: Date.now(), lastNavigationAt, closing });
     const line = `${r.method()} ${r.url().slice(0, 160)} ${r.failure()?.errorText} [${c.reason}]`;
+    if (isServerAction(r)) onEvidence(`+${Date.now() - t0}ms action FAILED ${r.failure()?.errorText} started=+${(started.get(r) ?? t0) - t0}ms class=${c.kind}/${c.reason} closing=${closing} navigations=[${navs.join(" | ")}] page=${page.url().slice(0, 120)}`);
     (c.kind === "expected" ? onExpected : onUnexpected)(line);
   });
   return { setClosing: () => { closing = true; } };

@@ -8,7 +8,7 @@ import path from "node:path";
 import cp from "node:child_process";
 import { createRequire } from "node:module";
 import { trackFailures } from "./network_filter.mjs";
-import { pickRadio } from "./interactions.mjs";
+import { pickRadio, waitForAlertText } from "./interactions.mjs";
 const require = createRequire(import.meta.url);
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : d; };
 const BASE = (arg("--base-url", process.env.E2E_BASE_URL || "http://127.0.0.1:3000")).replace(/\/$/, ""), OUT = arg("--out", "e2e.json");
@@ -42,7 +42,7 @@ try {
   await lp.getByRole("button", { name: /sign in|log in/i }).click(); await lp.waitForURL(/\/dashboard/, { timeout: 20000 });
 } catch (e) {
   // Report WHY: the app's own visible error, the auth requests the browser made and their status, console errors and cookie NAMES (never values).
-  const alertText = await lp.getByRole("alert").first().innerText({ timeout: 1000 }).catch(() => "(no alert shown)");
+  const alertText = await lp.getByRole("alert").filter({ hasText: /\S/ }).first().innerText({ timeout: 1000 }).catch(() => "(no alert shown)");
   const cookieNames = (await lp.context().cookies()).map((c) => c.name).join(",") || "(none)";
   const why = `${e.message.split("\n")[0]} | url=${new URL(lp.url()).pathname} | alert="${alertText.slice(0, 160)}" | auth requests: ${authNet.join("; ") || "(none made)"} | console: ${loginLog.join(" // ") || "(none)"} | cookies: ${cookieNames}`;
   if (ART) { await lp.screenshot({ path: path.join(ART, "login-failure.png"), fullPage: true }).catch(() => {}); fs.writeFileSync(path.join(ART, "auth-diagnostics.json"), JSON.stringify({ url: lp.url(), alertText, authNet, loginLog, cookieNames }, null, 1)); }
@@ -65,7 +65,7 @@ async function inspect(route, w) {
   if (ART) await ctx.tracing.start({ screenshots: true, snapshots: true }).catch(() => {});
   page.on("console", (m) => { const t = m.text(); if (m.type() === "error" || m.type() === "warning" || /hydrat/i.test(t)) clog(tag, `console.${m.type()}: ${t.slice(0, 400)}`); if (m.type() === "error" || /hydrat/i.test(t)) problems.push(`console.${m.type()}: ${t.slice(0, 200)}`); });
   page.on("pageerror", (e) => { clog(tag, "pageerror: " + e.message); problems.push("pageerror: " + String(e.message).slice(0, 200)); });
-  const tracker = trackFailures(page, BASE, (line) => { clog(tag, "requestfailed: " + line); problems.push("requestfailed: " + line.slice(0, 200)); }, (line) => clog(tag, "ignored (expected): " + line));
+  const tracker = trackFailures(page, BASE, (line) => { clog(tag, "requestfailed: " + line); problems.push("requestfailed: " + line.slice(0, 200)); }, (line) => clog(tag, "ignored (expected): " + line), (line) => { if (ART) fs.appendFileSync(path.join(ART, "server-actions.log"), `${tag} ${line}\n`); });
   page.on("response", (r) => { if (r.status() >= 400 && r.url().startsWith(BASE) && !/favicon/.test(r.url())) { clog(tag, `HTTP ${r.status()} ${r.url()}`); problems.push(`HTTP ${r.status()} ${r.url().slice(BASE.length, BASE.length + 100)}`); } });
   let status = 0; try { const r = await page.goto(BASE + route, { waitUntil: "networkidle", timeout: 30000 }); status = r?.status() ?? 0; } catch (e) { problems.push("navigation: " + e.message.split("\n")[0]); }
   await page.waitForTimeout(400);
@@ -120,7 +120,7 @@ await flow("flow: revision review (recall -> reveal -> confidence -> rate -> res
 await flow("flow: revision stale tab (second tab reviews first; first tab must say 'already updated elsewhere')", async (ctx) => {
   const a = await ctx.newPage(), b = await ctx.newPage(); for (const p of [a, b]) { await p.goto(BASE + reviewHref, { waitUntil: "networkidle" }); if (!(await p.getByText(/Can you still recall this\?/).count())) throw Object.assign(new Error("the revision is already complete (graduated by the previous flow): seed a second open revision"), { blocked: true }); await p.getByRole("button", { name: "Show the material" }).click(); await pickRadio(p, /^Good\b/); }
   await a.getByRole("button", { name: "Save review" }).click(); await expectText(a, /Review complete|already updated|already completed/, 15000);
-  await b.getByRole("button", { name: "Save review" }).click(); await b.getByRole("alert").first().waitFor({ timeout: 15000 }); const t = await b.getByRole("alert").first().innerText(); if (!/already updated elsewhere|already completed|saved/i.test(t)) throw new Error("stale submit not reported: " + t);
+  await b.getByRole("button", { name: "Save review" }).click(); const t = await waitForAlertText(b, /already updated elsewhere|already completed|saved/i).catch(async () => `(no matching alert; alerts: ${JSON.stringify(await b.getByRole("alert").allInnerTexts())})`); if (!/already updated elsewhere|already completed|saved/i.test(t)) throw new Error("stale submit not reported: " + t);
 }, reviewHref ? null : "no open revision for the scratch user");
 await flow("flow: study session (start, pause, resume, finish) and revision stays independent", async (ctx) => {
   const page = await ctx.newPage(); await page.goto(BASE + studyHref, { waitUntil: "networkidle" });

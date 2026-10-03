@@ -40,9 +40,11 @@ export function QuestionView({ s, onPick, onSubmit, onNext, last, busy }: { s: P
         </div>
       </fieldset>
 
+      {/* one persistent polite live region (the heading below keeps its heading role) */}
+      <p role="status" className="sr-only">{answered && r ? (r.is_correct ? "Correct" : "Incorrect") : ""}</p>
       {answered && r && (
         <section aria-labelledby="fb-h" className={`rounded-card border p-4 ${r.is_correct ? "border-lime/40 bg-lime-dim" : "border-red-500/40 bg-red-500/10"}`}>
-          <h2 id="fb-h" role="status" className="text-base font-semibold">{r.is_correct ? "Correct" : `Incorrect. The answer is ${r.correct_answer}.`}</h2>
+          <h2 id="fb-h" className="text-base font-semibold">{r.is_correct ? "Correct" : `Incorrect. The answer is ${r.correct_answer}.`}</h2>
           {r.explanation ? <p className="mt-2 whitespace-pre-wrap text-sm text-sub">{r.explanation}</p> : <p className="mt-2 text-sm text-mute">No explanation is recorded for this question.</p>}
           {(q.foundation || (q.topics && q.topics.length > 0)) && (
             <dl className="mt-3 space-y-1.5 border-t border-line pt-3 text-sm">

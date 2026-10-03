@@ -10,3 +10,11 @@ export async function pickRadio(page, name, { timeout = 10000 } = {}) {
   await label.click({ timeout });
   if (!(await radio.isChecked())) throw new Error(`clicking the label did not select the radio ${name ?? "(first)"}`);
 }
+
+// Next.js renders <next-route-announcer> whose shadow root contains an (empty) role="alert" live region; getByRole("alert").first() can resolve to it.
+// Wait for the alert that actually carries the expected text, and return that text.
+export async function waitForAlertText(page, re, { timeout = 15000 } = {}) {
+  const alert = page.getByRole("alert").filter({ hasText: re }).first();
+  await alert.waitFor({ state: "visible", timeout });
+  return (await alert.innerText()).trim();
+}

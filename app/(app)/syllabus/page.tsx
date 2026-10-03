@@ -35,7 +35,7 @@ export default async function Syllabus({ searchParams: sp }: { searchParams: SP 
                 <ChevronRight className="h-4 w-4 text-mute transition group-open:rotate-90" />
                 <span className="flex-1 truncate font-medium">{name}</span><span className="text-xs text-mute">{list.length}</span>
               </summary>
-              <div className="mt-1 grid gap-3 pb-3 md:grid-cols-2">{list.map((i) => <ItemCard key={i.kind + i.id} item={i} />)}</div>
+              <div className="mt-1 grid grid-cols-[minmax(0,1fr)] gap-3 pb-3 md:grid-cols-[repeat(2,minmax(0,1fr))]">{list.map((i) => <ItemCard key={i.kind + i.id} item={i} />)}</div>
             </details>
           ))}
         </div>

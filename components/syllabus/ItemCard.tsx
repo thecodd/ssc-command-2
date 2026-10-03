@@ -8,7 +8,7 @@ import type { SyllabusItem } from "@/types/curriculum";
 
 export function ItemCard({ item }: { item: SyllabusItem }) {
   return (
-    <article className="card relative block p-4 transition hover:border-mute focus-within:border-lime">
+    <article className="card relative block min-w-0 p-4 transition hover:border-mute focus-within:border-lime">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0"><p className="font-medium leading-snug"><Link href={item.href} className="after:absolute after:inset-0 after:rounded-card focus-visible:outline-none">{item.title}</Link></p><p className="mt-0.5 truncate text-xs text-mute">{item.meta}</p></div>
         <Badge tone={statusTone(item.status)}>{STATUS_LABEL[item.status]}</Badge>

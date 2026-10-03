@@ -89,6 +89,20 @@ A GitHub Actions workflow (`.github/workflows/phase7-runtime-gate.yml`) and a Do
 - No claim of READY. The CI gate has not run, so the decision below is unchanged.
 
 ---
+# PRODUCT COMPLETION PASS (after run #6; NOT yet validated on a runner)
+Audit of the current tree found the catch-all route serving "isn't built yet" placeholders for navigation targets: `/pyqs`, `/notes`, `/resources`, `/analytics`, `/settings`, `/tasks`, `/tasks/new`, `/notes/new`, `/resources/new`, `/pyqs/new`, and `/search`; there was also no way to sign out. Implemented with real services and validated server actions (owner-scoped writes, our own error copy):
+- Tasks: list (open / recently completed), create with due date, priority and an optional link to a chapter or topic, complete or reopen, delete with confirmation. Due-today tasks already feed daily focus.
+- Notes: searchable list, create (notes always belong to a chapter or topic, per the schema), edit, delete.
+- Resources: official (read-only) and personal, create with an optional link, delete own.
+- PYQ bank: practisable question counts per SSC topic (from `subject_pyq_counts`, which excludes archived and keyless questions), the learner's attempts and recent accuracy, and mixed, weak and per-topic practice entry points.
+- Analytics: 14-day study time (in the learner's time zone), PYQ accuracy (database counts), mastery distribution, last-30-day review ratings, weakest topics by accuracy, streak. All from real rows; empty state when there is no data.
+- Search page (`/search?q=`) on the same ranked `global_search` RPC, grouped, with Study shortcuts.
+- Settings: display name, daily goal, time zone, revision ladder (validated; the database guard re-validates), and sign out (also on More).
+- The catch-all is now a real 404 page. `/pyqs/new` (custom PYQ authoring) was removed from quick-add: it was never implemented, and a custom question needs answer-key handling that is out of scope for this pass.
+- The real-browser gate now also covers `/pyqs`, `/tasks`, `/tasks/new`, `/notes`, `/notes/new`, `/resources`, `/resources/new`, `/analytics`, `/settings`, `/more` and `/search?q=` at all 5 viewports.
+Not verified here: none of these screens has been rendered against a real database or built with the real Next/TypeScript toolchain (no registry access, no PostgreSQL); the next GitHub run is the first real check.
+
+---
 # SIXTH REAL CI RUN (commit ed2d45e): remaining failures, diagnosis and fixes (NOT yet re-validated on a runner)
 Run #6 (reported by the maintainer): everything PASSED (SQL 334/73/52/56, seed/auth/CORS, typecheck, lint, build, accessibility 37/37, S9 47/47) except the real browser, 62/77.
 

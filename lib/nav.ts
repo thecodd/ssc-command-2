@@ -1,4 +1,4 @@
-import { Home, Layers, Timer, RefreshCw, Menu, StickyNote, Target, BarChart3, BookOpen, GraduationCap, Link2, Settings, type LucideIcon } from "lucide-react";
+import { Home, Layers, Timer, RefreshCw, Menu, StickyNote, Target, BarChart3, BookOpen, GraduationCap, Link2, Settings, ListTodo, Search, type LucideIcon } from "lucide-react";
 export interface NavItem { href: string; label: string; icon: LucideIcon }
 export const mobileNav: NavItem[] = [
   { href: "/dashboard", label: "Home", icon: Home },
@@ -16,9 +16,11 @@ export const sidebarNav: NavItem[] = [
   { href: "/study", label: "My Study", icon: Timer },
   { href: "/revision", label: "Revision", icon: RefreshCw },
   { href: "/pyqs", label: "PYQs", icon: Target },
+  { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/notes", label: "Notes", icon: StickyNote },
   { href: "/resources", label: "Resources", icon: Link2 },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/search", label: "Search", icon: Search },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 export const addActions = [
@@ -26,5 +28,4 @@ export const addActions = [
   { href: "/syllabus/new", label: "Topic" },
   { href: "/notes/new", label: "Note" },
   { href: "/resources/new", label: "Resource" },
-  { href: "/pyqs/new", label: "PYQ" },
 ];

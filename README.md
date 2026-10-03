@@ -49,3 +49,6 @@ bash database/tests/phase4/build_all.sh                # builds phase4_all.sql (
 
 ## Phase 7 CI runtime gate
 `.github/workflows/phase7-runtime-gate.yml` runs the validation kit on a real PostgreSQL 15 service container in GitHub Actions (local fallback: `docker compose -f docker/validation/docker-compose.yml up --build`). See [docs/CI_PHASE7_GATE.md](docs/CI_PHASE7_GATE.md). Status: not executed on a real runner yet, so the project remains NOT READY FOR PHASE 8.
+
+## Product surfaces (all real, no placeholders)
+Dashboard, Master Syllabus, NCERT, SSC, Mapping, Study Mode, PYQ practice, Revision, plus the workspace screens: **Tasks** (`/tasks`, `/tasks/new`), **Notes** (`/notes`, `/notes/new`, `/notes/[id]`), **Resources** (`/resources`, `/resources/new`), **PYQ bank** (`/pyqs`), **Analytics** (`/analytics`, real rows only), **Search** (`/search`, plus Ctrl/Cmd+K), **Settings** (`/settings`: name, daily goal, time zone, revision ladder, sign out), **More** (`/more`). Unknown paths are a real 404.

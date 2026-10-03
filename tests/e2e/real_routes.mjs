@@ -14,7 +14,7 @@ const arg = (n, d) => { const i = process.argv.indexOf(n); return i >= 0 ? proce
 const BASE = (arg("--base-url", process.env.E2E_BASE_URL || "http://127.0.0.1:3000")).replace(/\/$/, ""), OUT = arg("--out", "e2e.json");
 const EMAIL = process.env.E2E_EMAIL, PASSWORD = process.env.E2E_PASSWORD;
 const VIEWPORTS = [360, 390, 412, 1024, 1440];
-const ROUTES = ["/dashboard", "/study", "/revision", "/practice/new?scope=mixed", "/syllabus", "/ncert", "/ssc", "/mapping", "/search"];
+const ROUTES = ["/dashboard", "/study", "/revision", "/practice/new?scope=mixed", "/syllabus", "/ncert", "/ssc", "/mapping", "/search?q=fixture", "/pyqs", "/tasks", "/tasks/new", "/notes", "/notes/new", "/resources", "/resources/new", "/analytics", "/settings", "/more"];
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const ART = process.env.E2E_ARTIFACTS_DIR || "";
 if (ART) fs.mkdirSync(ART, { recursive: true });
@@ -79,7 +79,7 @@ async function inspect(route, w) {
   if (m.clipped.length) problems.push("fixed element clipped by viewport: " + m.clipped.join(","));
   if (status >= 400) problems.push("document status " + status);
   if (/\/login/.test(page.url()) && !route.startsWith("/login")) problems.push("redirected to /login (session lost)");
-  const note = route === "/search" ? ` (no dedicated /search page exists: served by the catch-all placeholder, h1="${m.h1}")` : "";
+  const note = "";
   if (problems.length && ART) await page.screenshot({ path: path.join(ART, `${slug(tag)}.png`), fullPage: true }).catch(() => {});
   R(`${route} @${w}px`, problems.length ? "FAIL" : "PASS", problems.length ? problems.slice(0, 6).join(" | ") : `HTTP ${status}${m.small ? `, ${m.small} controls under 40px (informational)` : ""}${note}`);
   // links (once, at 390): every same-origin link on the page must not 404/500

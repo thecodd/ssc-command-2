@@ -107,10 +107,20 @@ for (const w of VIEWPORTS) { if (reviewHref) await inspect(reviewHref, w); else 
 if (!axeSource) A("axe-core", "NOT RUN", "axe-core is not installed (npm i -D axe-core); no WCAG automation was run");
 
 // ---- flows at 390px
-const flowCtx = async () => { const c = await browser.newContext({ storageState: state, viewport: { width: 390, height: 800 } }); if (ART) await c.tracing.start({ screenshots: true, snapshots: true }).catch(() => {}); return c; };
+const flowCtx = async () => {
+  const c = await browser.newContext({ storageState: state, viewport: { width: 390, height: 800 } }); c.__log = [];
+  c.on("page", (pg) => {   // keep the last events so a failed flow says what the browser saw, not just which wait timed out
+    const add = (x) => { c.__log.push(x.slice(0, 160)); if (c.__log.length > 8) c.__log.shift(); };
+    pg.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") add(`console.${m.type()}: ${m.text()}`); });
+    pg.on("pageerror", (e) => add("pageerror: " + e.message));
+    pg.on("requestfailed", (r) => add(`requestfailed: ${r.method()} ${r.url().replace(BASE, "")} ${r.failure()?.errorText ?? ""}`));
+    pg.on("response", (r) => { if (r.status() >= 400 && r.url().startsWith(BASE)) add(`HTTP ${r.status()} ${r.request().method()} ${r.url().replace(BASE, "")}`); });
+  });
+  if (ART) await c.tracing.start({ screenshots: true, snapshots: true }).catch(() => {}); return c;
+};
 const flow = async (name, fn, blocked) => {
   if (blocked) return R(name, "BLOCKED", blocked); const ctx = await flowCtx(); let failed = false;
-  try { await fn(ctx); R(name, "PASS", ""); } catch (e) { failed = true; clog(name, "flow failed: " + e.message); R(name, e.blocked ? "BLOCKED" : "FAIL", e.message.split("\n").slice(0, 4).join(" | ").slice(0, 500) + " @ " + ctx.pages().map((pg) => pg.url().replace(BASE, "")).join(",")); if (ART) { let i = 0; for (const pg of ctx.pages()) await pg.screenshot({ path: path.join(ART, `${slug(name)}_${i++}.png`), fullPage: true }).catch(() => {}); } }
+  try { await fn(ctx); R(name, "PASS", ""); } catch (e) { failed = true; clog(name, "flow failed: " + e.message); R(name, e.blocked ? "BLOCKED" : "FAIL", e.message.split("\n").slice(0, 4).join(" | ").slice(0, 500) + " @ " + ctx.pages().map((pg) => pg.url().replace(BASE, "")).join(",") + " ## " + ctx.__log.join(" ; ") + await Promise.all(ctx.pages().map((pg) => pg.locator("[role=alert]").allInnerTexts().then((t) => t.length ? " ## alert: " + t.join("/").slice(0, 200) : "").catch(() => ""))).then((a) => a.join(""))); if (ART) { let i = 0; for (const pg of ctx.pages()) await pg.screenshot({ path: path.join(ART, `${slug(name)}_${i++}.png`), fullPage: true }).catch(() => {}); } }
   finally { if (ART) await ctx.tracing.stop(failed ? { path: path.join(ART, `${slug(name)}.trace.zip`) } : undefined).catch(() => {}); await ctx.close(); }
 };
 const expectText = async (page, re, t = 8000) => { await page.getByText(re).first().waitFor({ timeout: t }); };

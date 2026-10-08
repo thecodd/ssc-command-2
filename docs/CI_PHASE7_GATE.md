@@ -1,6 +1,6 @@
 # Phase 7 runtime gate in CI
 
-**Status: the kit this workflow runs was executed end to end on 2026-10-08 against the same images (READY FOR PHASE 8, see docs/PHASE7_RUNTIME_VALIDATION.md); the workflow file itself has not run on a GitHub runner yet.** Earlier status: The workflow and Docker fallback were validated statically and through unit tests of their scripts (`npm run test:kit`). No GitHub runner has run them yet. Until a real run is green, the project stays **NOT READY FOR PHASE 8**.
+**Status: the kit this workflow runs was executed end to end on 2026-10-08 against the same images (READY FOR PHASE 8, see docs/PHASE7_RUNTIME_VALIDATION.md); GitHub runs #1-#8 (before those fixes) ended red; check the Actions tab for the latest run.** Earlier status: The workflow and Docker fallback were validated statically and through unit tests of their scripts (`npm run test:kit`). No GitHub runner has run them yet. Until a real run is green, the project stays **NOT READY FOR PHASE 8**.
 
 `.github/workflows/phase7-runtime-gate.yml` provisions a clean environment and runs the repository's validation kit (`scripts/validate_phase7.mjs`) against a real PostgreSQL. The workflow contains **no gate logic of its own**: provisioning only, then one command.
 

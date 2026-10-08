@@ -8,6 +8,7 @@ import { addNoteAction, addResourceAction, updateNoteAction } from "@/app/action
 import { RESOURCE_TYPES } from "@/lib/format";
 import type { StudyMaterial, StudyNote } from "@/types/study";
 import { useStudy } from "./StudyProvider";
+import { safeExternalUrl } from "@/lib/url";
 
 const Hidden = ({ path }: { path: string }) => { const { type, id } = useStudy(); return <><input type="hidden" name="entity_type" value={type} /><input type="hidden" name="entity_id" value={id} /><input type="hidden" name="path" value={path} /></>; };
 
@@ -51,7 +52,7 @@ export function NotesSheet({ notes, materials, path }: { notes: StudyNote[]; mat
             <input name="url" type="url" inputMode="url" placeholder="https://" aria-label="Link" className={fieldCls} />
             <select name="type" defaultValue="website" aria-label="Type" className={fieldCls}>{RESOURCE_TYPES.map((t) => <option key={t} value={t}>{t === "pdf" ? "PDF" : t[0].toUpperCase() + t.slice(1)}</option>)}</select>
           </ActionForm>
-          <ul className="divide-y divide-line">{materials.map((r) => <li key={r.id}>{r.url ? <a href={r.url} target="_blank" rel="noreferrer noopener" className="flex min-h-[52px] items-center justify-between gap-3 hover:text-lime"><span className="min-w-0"><span className="block truncate">{r.title}</span><span className="text-xs text-mute">{r.official ? "Official · " : ""}{r.type}</span></span><ExternalLink className="h-4 w-4 shrink-0 text-mute" aria-hidden /></a> : <p className="py-3">{r.title}</p>}</li>)}</ul>
+          <ul className="divide-y divide-line">{materials.map((r) => <li key={r.id}>{safeExternalUrl(r.url) ? <a href={safeExternalUrl(r.url)!} target="_blank" rel="noreferrer noopener" className="flex min-h-[52px] items-center justify-between gap-3 hover:text-lime"><span className="min-w-0"><span className="block truncate">{r.title}</span><span className="text-xs text-mute">{r.official ? "Official · " : ""}{r.type}</span></span><ExternalLink className="h-4 w-4 shrink-0 text-mute" aria-hidden /></a> : <p className="py-3">{r.title}</p>}</li>)}</ul>
         </div>
       ) : (
         <div className="space-y-4">

@@ -145,6 +145,62 @@ await flow("flow: practice (answer, server grading, summary)", async (ctx) => {
   await expectText(page, /Session summary/, 15000);
 }, practiceHref ? null : "could not start a practice session");
 
+// ---- Phase 8 workspace flows (tasks, notes, resources): every write goes through the real UI and is read back from the server
+const uniq = (k) => `E2E ${k} ${Date.now().toString(36)}`;
+const gone = async (loc, t = 15000) => { await loc.first().waitFor({ state: "detached", timeout: t }); };
+await flow("flow: tasks (create due today -> dashboard 'Tasks due today' -> complete -> reopen -> delete only after confirmation)", async (ctx) => {
+  const page = await ctx.newPage(), title = uniq("task");
+  await page.goto(BASE + "/tasks/new", { waitUntil: "networkidle" });
+  await page.locator("input[name=title]").fill(title); await page.locator("select[name=priority]").selectOption("high");
+  await page.getByRole("button", { name: "Add task" }).click(); await page.waitForURL(/\/tasks$/, { timeout: 15000 });
+  const open = page.locator("section[aria-labelledby=open-h]"), done = page.locator("section[aria-labelledby=done-h]");
+  await open.getByText(title).waitFor({ timeout: 10000 });
+  await page.goto(BASE + "/dashboard", { waitUntil: "networkidle" });
+  const due = page.locator("section[aria-labelledby=due-tasks]"); await due.getByText(title).waitFor({ timeout: 10000 });
+  await due.getByRole("button", { name: `${title}: mark as done` }).click(); await gone(due.getByText(title));
+  await page.goto(BASE + "/tasks", { waitUntil: "networkidle" }); await done.getByText(title).waitFor({ timeout: 10000 });
+  if (await open.getByText(title).count()) throw new Error("a completed task is still listed as open");
+  await done.getByRole("button", { name: `${title}: completed, mark as not done` }).click(); await open.getByText(title).waitFor({ timeout: 15000 });
+  await page.getByRole("button", { name: `Delete ${title}` }).click(); await page.getByRole("button", { name: "Cancel" }).click();
+  await page.waitForTimeout(500); if (!(await open.getByText(title).count())) throw new Error("Cancel deleted the task");
+  await page.getByRole("button", { name: `Delete ${title}` }).click(); await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await gone(page.getByText(title)); await page.reload({ waitUntil: "networkidle" });
+  if (await page.getByText(title).count()) throw new Error("the deleted task came back after a reload");
+});
+await flow("flow: notes (create on a learning item -> search -> edit -> delete after confirmation)", async (ctx) => {
+  const page = await ctx.newPage(), title = uniq("note"), word = `zq${Date.now().toString(36)}`;
+  await page.goto(BASE + "/notes/new", { waitUntil: "networkidle" });
+  const sel = page.locator("select[name=link]"); const first = await sel.locator("option").nth(1).getAttribute("value");
+  if (!first) throw Object.assign(new Error("no learning item to attach a note to (seed progress for the scratch user)"), { blocked: true });
+  await sel.selectOption(first); await page.locator("input[name=title]").fill(title); await page.locator("textarea[name=content]").fill(`first draft ${word}`);
+  await page.getByRole("button", { name: "Save note" }).click(); await page.waitForURL(/\/notes$/, { timeout: 15000 });
+  await page.getByRole("searchbox").or(page.locator("input[name=q]")).first().fill(word); await page.keyboard.press("Enter");
+  await page.waitForURL(new RegExp(`[?&]q=${word}`), { timeout: 10000 }); await page.getByRole("link", { name: title }).click();
+  await page.waitForURL(/\/notes\/[0-9a-f-]{36}$/, { timeout: 10000 });
+  await page.locator("textarea[name=content]").fill(`edited ${word}`); await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByRole("status").filter({ hasText: "Note saved" }).waitFor({ timeout: 10000 });
+  await page.reload({ waitUntil: "networkidle" }); if ((await page.locator("textarea[name=content]").inputValue()) !== `edited ${word}`) throw new Error("the edit did not persist");
+  await page.getByRole("button", { name: `Delete ${title}` }).click(); await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.waitForURL(/\/notes$/, { timeout: 15000 }); await page.waitForLoadState("networkidle");
+  if (await page.getByText(title).count()) throw new Error("the deleted note is still listed");
+});
+await flow("flow: resources (official is read-only, saved link opens safely in a new tab, unsafe stored URL is not a link, delete after confirmation)", async (ctx) => {
+  const page = await ctx.newPage(), title = uniq("resource"), url = `https://example.test/${Date.now().toString(36)}`;
+  await page.goto(BASE + "/resources/new", { waitUntil: "networkidle" });
+  await page.locator("input[name=title]").fill(title); await page.locator("input[name=url]").fill(url); await page.locator("select[name=type]").selectOption("pdf");
+  await page.getByRole("button", { name: "Save resource" }).click(); await page.waitForURL(/\/resources$/, { timeout: 15000 });
+  const a = page.locator(`a[href="${url}"]`); await a.waitFor({ timeout: 10000 });
+  if ((await a.getAttribute("target")) !== "_blank" || !/noopener/.test((await a.getAttribute("rel")) ?? "")) throw new Error("a saved link must open in a new tab with rel=noopener");
+  const official = page.locator("section[aria-labelledby=off-h] li").filter({ hasText: "CI Fixture official notice" });
+  if (!(await official.count())) throw Object.assign(new Error("no official resource seeded"), { blocked: true });
+  if (await official.getByRole("button", { name: /Delete/ }).count()) throw new Error("official resources must be read-only (a delete button is shown)");
+  if (await page.locator('a[href^="javascript:" i], a[href^="data:" i]').count()) throw new Error("an unsafe stored URL was rendered as a link");
+  if (!(await page.getByText("CI Fixture unsafe link").count())) throw new Error("the resource with an unsafe URL should still be listed (as plain text)");
+  await page.getByRole("button", { name: `Delete ${title}` }).click(); await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await gone(page.locator(`a[href="${url}"]`)); await page.reload({ waitUntil: "networkidle" });
+  if (await page.locator(`a[href="${url}"]`).count()) throw new Error("the deleted resource came back after a reload");
+});
+
 // ---- accessibility checks on the real app (390px)
 const a11yCtx = await flowCtx();
 if (reviewHref) { const p = await a11yCtx.newPage(); try {

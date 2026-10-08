@@ -2,6 +2,7 @@ import { requireUser, type Db } from "@/lib/auth";
 import { first } from "@/lib/format";
 import { getClock } from "./profile";
 import type { EntityType } from "@/types/curriculum";
+import { safeExternalUrl } from "@/lib/url";
 
 // Tasks, notes and resources: the learner's own workspace. All reads/writes are the user's own rows (RLS: own rows; official resources have user_id null and are read-only).
 export const LINKABLE: EntityType[] = ["ncert_chapter", "ssc_topic", "ssc_subtopic"];
@@ -37,6 +38,16 @@ export async function listTasks(): Promise<{ today: string; open: TaskRow[]; don
   const rows = [...(open.data ?? []), ...(done.data ?? [])] as R[]; const links = await resolveLinks(sb, rows.map((r) => ({ type: r.entity_type, id: r.entity_id })));
   const map = (r: R): TaskRow => ({ id: r.id, title: r.title, description: r.description, priority: r.priority, due_date: r.due_date, status: r.status, completed_at: r.completed_at, link: linkOf(links, r.entity_type, r.entity_id) });
   return { today, open: ((open.data ?? []) as R[]).map(map), done: ((done.data ?? []) as R[]).map(map) };
+}
+/** Open tasks due today or earlier (the learner's clock), most overdue first: the dashboard's "Tasks due today". */
+export async function listDueTasks(limit = 5): Promise<{ today: string; tasks: TaskRow[]; more: number }> {
+  const { sb, user } = await requireUser(); const { today } = await getClock();
+  const { data, error, count } = await sb.from("tasks").select("id,title,description,priority,due_date,status,completed_at,entity_type,entity_id", { count: "exact" })
+    .eq("user_id", user.id).neq("status", "completed").lte("due_date", today).order("due_date", { ascending: true }).order("created_at", { ascending: true }).limit(limit);
+  if (error) throw error;
+  type R = Omit<TaskRow, "link"> & { entity_type: string | null; entity_id: string | null };
+  const rows = (data ?? []) as R[]; const links = await resolveLinks(sb, rows.map((r) => ({ type: r.entity_type, id: r.entity_id })));
+  return { today, more: Math.max(0, (count ?? rows.length) - rows.length), tasks: rows.map((r) => ({ id: r.id, title: r.title, description: r.description, priority: r.priority, due_date: r.due_date, status: r.status, completed_at: r.completed_at, link: linkOf(links, r.entity_type, r.entity_id) })) };
 }
 export async function createTask(i: { title: string; description: string | null; due_date: string | null; priority: string; link: { type: EntityType; id: string } | null }) {
   const { sb, user } = await requireUser();
@@ -80,7 +91,7 @@ export async function listResources(): Promise<{ mine: ResourceRow[]; official: 
   return { mine: rows.filter((r) => r.user_id === user.id).map(map), official: rows.filter((r) => r.user_id === null).map(map) };
 }
 export async function createResource(i: { title: string; url: string | null; type: string; description: string | null; link: { type: EntityType; id: string } | null }) {
-  if (i.url && !/^https?:\/\//i.test(i.url)) throw new Error("Links must start with http:// or https://");
+  if (i.url && !safeExternalUrl(i.url)) throw new Error("Links must start with http:// or https://");
   const { sb, user } = await requireUser();
   const { error } = await sb.from("resources").insert({ user_id: user.id, title: i.title, url: i.url, type: i.type, description: i.description, entity_type: i.link?.type ?? null, entity_id: i.link?.id ?? null });
   if (error) throw error;

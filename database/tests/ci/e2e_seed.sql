@@ -40,6 +40,11 @@ insert into pyq_topics (pyq_id, ssc_topic_id) select ('c1000000-0000-4000-8000-0
 commit;
 
 -- ---- the learner's state, through the REAL client RPCs (as the CI user), so the seeded rows are exactly what the app would have produced ----
+-- resources: one OFFICIAL row (read-only for learners) and one personal row whose URL was written straight through the API with an unsafe
+-- scheme (the app's form rejects it); the browser check asserts it never becomes a clickable link.
+insert into resources (id, user_id, entity_type, entity_id, title, url, type, description) values
+  ('c1000000-0000-4000-8000-000000000081', null, 'ssc_topic', 'c1000000-0000-4000-8000-000000000041', 'CI Fixture official notice', 'https://example.test/ci-official.pdf', 'pdf', 'CI Fixture official resource'),
+  ('c1000000-0000-4000-8000-000000000082', :'uid'::uuid, null, null, 'CI Fixture unsafe link', 'javascript:alert(1)', 'website', 'CI Fixture: unsafe scheme written via the API');
 begin;
 select set_config('request.jwt.claim.sub', :'uid', true), set_config('request.jwt.claims', json_build_object('sub', :'uid', 'role', 'authenticated')::text, true);
 set local role authenticated;

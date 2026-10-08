@@ -7,6 +7,7 @@ import { practiceHref, practiceVerb, studyHref } from "@/lib/study/routes";
 import { SubtopicChecklist } from "./SubtopicChecklist";
 import { OpenSheetButton } from "./NotesSheet";
 import type { StudyContext, StudyLink } from "@/types/study";
+import { safeExternalUrl } from "@/lib/url";
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const Heading = ({ id, children, hint }: { id: string; children: React.ReactNode; hint?: string }) => (
@@ -73,7 +74,7 @@ export function StudyMaterial({ ctx }: { ctx: StudyContext }) {
       ) : (
         <ul className="divide-y divide-line rounded-card border border-line">
           {e.sourceUrl && <li><a href={e.sourceUrl} target="_blank" rel="noreferrer noopener" className="flex min-h-[56px] items-center gap-3 px-4 hover:text-lime"><BookOpen className="h-4 w-4 shrink-0 text-lime" aria-hidden /><span className="min-w-0 flex-1"><span className="block truncate">Read the source chapter</span><span className="text-xs text-mute">Official source</span></span><ExternalLink className="h-4 w-4 text-mute" aria-hidden /></a></li>}
-          {materials.map((m) => <li key={m.id}>{m.url ? <a href={m.url} target="_blank" rel="noreferrer noopener" className="flex min-h-[56px] items-center gap-3 px-4 hover:text-lime"><span className="min-w-0 flex-1"><span className="block truncate">{m.title}</span><span className="text-xs text-mute">{m.official ? "Official · " : "Yours · "}{m.type}</span></span><ExternalLink className="h-4 w-4 text-mute" aria-hidden /></a> : <p className="px-4 py-4">{m.title}</p>}</li>)}
+          {materials.map((m) => <li key={m.id}>{safeExternalUrl(m.url) ? <a href={safeExternalUrl(m.url)!} target="_blank" rel="noreferrer noopener" className="flex min-h-[56px] items-center gap-3 px-4 hover:text-lime"><span className="min-w-0 flex-1"><span className="block truncate">{m.title}</span><span className="text-xs text-mute">{m.official ? "Official · " : "Yours · "}{m.type}</span></span><ExternalLink className="h-4 w-4 text-mute" aria-hidden /></a> : <p className="px-4 py-4">{m.title}</p>}</li>)}
         </ul>
       )}
     </section>

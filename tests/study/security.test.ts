@@ -165,4 +165,16 @@ export default async function () {
       }
     }
   });
+  await t("external links: only absolute http(s) URLs become hrefs; every external <a> opens with noopener", () => {
+    const { safeExternalUrl } = require(path.join(root, "lib/url"));
+    assert.equal(safeExternalUrl("https://ssc.gov.in/notice.pdf"), "https://ssc.gov.in/notice.pdf");
+    assert.equal(safeExternalUrl(" http://example.com "), "http://example.com/");
+    for (const bad of ["javascript:alert(1)", "JavaScript:alert(1)", " javascript:alert(1)", "data:text/html,<b>x</b>", "vbscript:x", "//evil.example", "/relative", "ftp://x.example", "", null, undefined]) assert.equal(safeExternalUrl(bad as string), null, String(bad));
+    for (const f of ["app/(app)/resources/page.tsx", "components/curriculum/NotesPanel.tsx", "components/study/sections.tsx", "components/study/NotesSheet.tsx"]) {
+      const src = fs.readFileSync(path.join(root, f), "utf8");
+      assert.doesNotMatch(src, /href=\{\s*(r|m)\.url\b/, `${f}: a raw stored URL must not reach href`);
+      for (const a of src.match(/<a [^>]*target="_blank"[^>]*>/g) ?? []) assert.match(a, /rel="[^"]*noopener/, `${f}: ${a.slice(0, 80)}`);
+    }
+    for (const f of ["services/workspace.ts", "services/content.ts"]) assert.match(fs.readFileSync(path.join(root, f), "utf8"), /safeExternalUrl\(i\.url\)/, `${f} validates with the same rule it renders with`);
+  });
 }

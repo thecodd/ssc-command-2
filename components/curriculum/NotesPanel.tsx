@@ -4,6 +4,7 @@ import { addNoteAction, addResourceAction } from "@/app/actions/content";
 import { RESOURCE_TYPES } from "@/lib/format";
 import { ExternalLink } from "lucide-react";
 import type { EntityType } from "@/types/curriculum";
+import { safeExternalUrl } from "@/lib/url";
 const Hidden = ({ type, id, path }: { type: EntityType; id: string; path: string }) => <><input type="hidden" name="entity_type" value={type} /><input type="hidden" name="entity_id" value={id} /><input type="hidden" name="path" value={path} /></>;
 
 export function NotesPanel({ type, id, path, notes }: { type: EntityType; id: string; path: string; notes: any[] }) {
@@ -28,7 +29,7 @@ export function ResourcesPanel({ type, id, path, resources }: { type: EntityType
       </ActionForm>
       {resources.length === 0 && <p className="text-sm text-mute">No resources yet. Add a PDF, video or link you trust.</p>}
       <ul className="divide-y divide-line">{resources.map((r) => (
-        <li key={r.id}><a href={r.url ?? undefined} target="_blank" rel="noreferrer" className="flex min-h-[52px] items-center justify-between gap-3 hover:text-lime"><span className="min-w-0"><span className="block truncate">{r.title}</span><span className="text-xs text-mute">{r.type}</span></span>{r.url && <ExternalLink className="h-4 w-4 shrink-0 text-mute" />}</a></li>))}</ul>
+        <li key={r.id}><a href={safeExternalUrl(r.url) ?? undefined} target="_blank" rel="noreferrer noopener" className="flex min-h-[52px] items-center justify-between gap-3 hover:text-lime"><span className="min-w-0"><span className="block truncate">{r.title}</span><span className="text-xs text-mute">{r.type}</span></span>{r.url && <ExternalLink className="h-4 w-4 shrink-0 text-mute" />}</a></li>))}</ul>
     </div>
   );
 }

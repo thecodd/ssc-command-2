@@ -1,7 +1,10 @@
 import Link from "next/link";
-import { formatDate as fmtDate } from "@/lib/time";
+import { diffDaysISO, formatDate as fmtDate } from "@/lib/time";
 import { CheckCircle2, Flame, RefreshCw, ListTodo, Layers } from "lucide-react";
 import { getDashboard } from "@/services/dashboard";
+import { listDueTasks } from "@/services/workspace";
+import { dbConfigured, getUser } from "@/lib/auth";
+import { TaskToggle } from "@/components/workspace/RowActions";
 import { Ring, Bar } from "@/components/ui/Ring";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SearchTrigger } from "@/components/dashboard/SearchTrigger";
@@ -9,7 +12,7 @@ import { FOCUS_LABEL, type FocusKind } from "@/lib/learning/rules";
 
 
 export default async function Dashboard() {
-  const d = await getDashboard();
+  const [d, due] = await Promise.all([getDashboard(), dueTasks()]);
   const goalPct = Math.min(100, Math.round((d.todayMinutes / d.dailyGoalMinutes) * 100));
   const rows: [string, number][] = [["NCERT", d.progress.ncert], ["SSC", d.progress.ssc], ["PYQs", d.progress.pyq], ["Revision", d.progress.revision]];
   return (
@@ -45,6 +48,22 @@ export default async function Dashboard() {
         <Stat icon={<CheckCircle2 className="h-4 w-4 text-lime" />} value={`${d.todayMinutes}/${d.dailyGoalMinutes}m`} label={`Goal ${goalPct}%`} />
         <Stat icon={<ListTodo className="h-4 w-4 text-lime" />} value={String(d.pendingTasks)} label="Open tasks" />
       </section>
+
+      {due && (
+        <section aria-labelledby="due-tasks" className="card p-5">
+          <div className="mb-2 flex items-center justify-between gap-3"><h2 id="due-tasks" className="font-semibold">Tasks due today</h2><Link href="/tasks" className="inline-flex min-h-[44px] items-center text-sm text-lime">All tasks</Link></div>
+          {due.tasks.length === 0 ? <p className="text-sm text-sub">Nothing due today. <Link href="/tasks/new" className="text-lime underline">Add a task</Link></p> : (
+            <ul className="divide-y divide-line">
+              {due.tasks.map((t) => { const late = t.due_date ? diffDaysISO(t.due_date, due.today) < 0 : false; return (
+                <li key={t.id} className="flex items-center gap-2 py-1">
+                  <TaskToggle id={t.id} done={false} title={t.title} />
+                  <div className="min-w-0 flex-1"><p className="break-words">{t.title}</p>
+                    <p className="text-xs">{late && t.due_date ? <span className="text-violet-fg">Overdue · {fmtDate(t.due_date)}</span> : <span className="text-mute">Due today</span>}{t.link && <> · <Link href={t.link.href} className="text-sub underline hover:text-lime">{t.link.title}</Link></>}</p></div>
+                </li>); })}
+            </ul>)}
+          {due.more > 0 && <p className="mt-2 text-sm text-sub">+{due.more} more in <Link href="/tasks" className="text-lime underline">Tasks</Link></p>}
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="card p-5" aria-labelledby="momentum">
@@ -82,6 +101,12 @@ export default async function Dashboard() {
       </div>
     </div>
   );
+}
+/** Open tasks due today or overdue; null when there is no signed-in user (the dashboard then shows its own empty state). */
+async function dueTasks() {
+  if (!dbConfigured()) return null;
+  const { user } = await getUser(); if (!user) return null;
+  return listDueTasks(5);
 }
 function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
   return <div className="card p-4"><div className="mb-2">{icon}</div><p className="text-xl font-semibold tabular-nums">{value}</p><p className="text-xs text-sub">{label}</p></div>;

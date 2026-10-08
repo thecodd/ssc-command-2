@@ -110,7 +110,7 @@ if (!axeSource) A("axe-core", "NOT RUN", "axe-core is not installed (npm i -D ax
 const flowCtx = async () => { const c = await browser.newContext({ storageState: state, viewport: { width: 390, height: 800 } }); if (ART) await c.tracing.start({ screenshots: true, snapshots: true }).catch(() => {}); return c; };
 const flow = async (name, fn, blocked) => {
   if (blocked) return R(name, "BLOCKED", blocked); const ctx = await flowCtx(); let failed = false;
-  try { await fn(ctx); R(name, "PASS", ""); } catch (e) { failed = true; clog(name, "flow failed: " + e.message); R(name, e.blocked ? "BLOCKED" : "FAIL", e.message.split("\n")[0]); if (ART) { let i = 0; for (const pg of ctx.pages()) await pg.screenshot({ path: path.join(ART, `${slug(name)}_${i++}.png`), fullPage: true }).catch(() => {}); } }
+  try { await fn(ctx); R(name, "PASS", ""); } catch (e) { failed = true; clog(name, "flow failed: " + e.message); R(name, e.blocked ? "BLOCKED" : "FAIL", e.message.split("\n").slice(0, 4).join(" | ").slice(0, 500) + " @ " + ctx.pages().map((pg) => pg.url().replace(BASE, "")).join(",")); if (ART) { let i = 0; for (const pg of ctx.pages()) await pg.screenshot({ path: path.join(ART, `${slug(name)}_${i++}.png`), fullPage: true }).catch(() => {}); } }
   finally { if (ART) await ctx.tracing.stop(failed ? { path: path.join(ART, `${slug(name)}.trace.zip`) } : undefined).catch(() => {}); await ctx.close(); }
 };
 const expectText = async (page, re, t = 8000) => { await page.getByText(re).first().waitFor({ timeout: t }); };

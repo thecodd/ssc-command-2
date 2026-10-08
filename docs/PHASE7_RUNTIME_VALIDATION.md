@@ -40,7 +40,7 @@ Node v22.22.2, npm 10.9.7, Chromium 141 + Playwright 1.56 (python and global nod
 | 8 | Typecheck (npm run typecheck) | GATE (mandatory) | **BLOCKED** | BLOCKED - dependencies unavailable (stage 2). No stub is substituted. |
 | 9 | Lint (npm run lint) | GATE (mandatory) | **BLOCKED** | BLOCKED - dependencies unavailable (stage 2). No stub is substituted. |
 | 10 | Production build (npm run build) | GATE (mandatory) | **BLOCKED** | BLOCKED - dependencies unavailable (stage 2). No stub is substituted. |
-| 11 | Real browser validation (real routes, 5 viewports) | GATE (mandatory) | **BLOCKED** | production build did not pass (stage 10); no validated database (stage 4b); NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY not set (they must point at the SAME scratch database and be set before the build); E2E_EMAIL / E |
+| 11 | Real browser validation (real routes, 6 viewports) | GATE (mandatory) | **BLOCKED** | production build did not pass (stage 10); no validated database (stage 4b); NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY not set (they must point at the SAME scratch database and be set before the build); E2E_EMAIL / E |
 | 11b | Accessibility checks on the real app | GATE (mandatory) | **BLOCKED** | requires stage 11 prerequisites |
 | S2 | Static SQL audit over migrations 001-014 (NOT execution) | SUPPORTING | **PASS** | static audit: no problems found; functions: 98 (47 SECURITY DEFINER, 0 without pinned search_path); dynamic EXECUTE statements: 40 (policy/grant loops: review by hand); ALTER DEFAULT PRIVILEGES statements: 2; regprocedure / to_reg |
 | S3 | 014_function_privileges.sql + matrix doc regenerate byte-identically | SUPPORTING | **PASS** | regeneration changed nothing |

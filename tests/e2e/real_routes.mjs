@@ -13,7 +13,7 @@ const require = createRequire(import.meta.url);
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : d; };
 const BASE = (arg("--base-url", process.env.E2E_BASE_URL || "http://127.0.0.1:3000")).replace(/\/$/, ""), OUT = arg("--out", "e2e.json");
 const EMAIL = process.env.E2E_EMAIL, PASSWORD = process.env.E2E_PASSWORD;
-const VIEWPORTS = [360, 390, 412, 1024, 1440];
+const VIEWPORTS = [320, 360, 390, 412, 1024, 1440];
 const ROUTES = ["/dashboard", "/study", "/revision", "/practice/new?scope=mixed", "/syllabus", "/ncert", "/ssc", "/mapping", "/search?q=fixture", "/pyqs", "/tasks", "/tasks/new", "/notes", "/notes/new", "/resources", "/resources/new", "/analytics", "/settings", "/more"];
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const ART = process.env.E2E_ARTIFACTS_DIR || "";
@@ -72,17 +72,22 @@ async function inspect(route, w) {
   const m = await page.evaluate(() => {
     const vw = window.innerWidth, over = document.documentElement.scrollWidth - vw;
     const clipped = [...document.querySelectorAll("*")].filter((el) => { const cs = getComputedStyle(el); if (cs.position !== "fixed" || cs.display === "none" || cs.visibility === "hidden") return false; const r = el.getBoundingClientRect(); return r.width > 0 && (r.left < -1 || r.right > vw + 1); }).map((el) => el.tagName.toLowerCase() + (el.id ? "#" + el.id : "")).slice(0, 3);
-    const small = [...document.querySelectorAll("button, a[href], input:not([type=hidden]), select, textarea, summary")].filter((el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && (r.height < 40 || r.width < 40) && !el.closest("[data-inline]") && !(el.tagName === "A" && el.closest("p, li, span") && el.parentElement && el.parentElement.tagName !== "LI" && r.height >= 16 && getComputedStyle(el).display === "inline"); }).length;
-    return { over, clipped, small, h1: document.querySelector("h1")?.textContent?.trim() ?? null, text: document.body.innerText.slice(0, 300) };
+    const effEl = (el) => (el.matches("input[type=radio], input[type=checkbox]") && el.getBoundingClientRect().width <= 2 ? (el.closest("label") || (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)) || el) : el);
+    const smallAll = [...document.querySelectorAll("button, a[href], input:not([type=hidden]), select, textarea, summary")].filter((el) => { const r = effEl(el).getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && (r.height < 40 || r.width < 40) && !el.closest("[data-inline]") && !(el.tagName === "A" && el.closest("p, li, span") && el.parentElement && el.parentElement.tagName !== "LI" && r.height >= 16 && getComputedStyle(el).display === "inline"); }).map((el) => { const r = effEl(el).getBoundingClientRect(); return `${el.tagName.toLowerCase()}[${(el.getAttribute("aria-label") || el.textContent || el.getAttribute("name") || "").trim().replace(/\s+/g, " ").slice(0, 28)}] ${Math.round(r.width)}x${Math.round(r.height)}`; });
+    const small = smallAll.length, tiny = smallAll.filter((d) => { const [w_, h_] = d.split(" ").pop().split("x").map(Number); return w_ < 24 || h_ < 24; });
+    const mains = document.querySelectorAll("main").length, h1s = document.querySelectorAll("h1").length;
+    return { over, clipped, small, smallAll, tiny, mains, h1s, h1: document.querySelector("h1")?.textContent?.trim() ?? null, text: document.body.innerText.slice(0, 300) };
   });
   await tracker.settle();
   if (m.over > 1) problems.push(`horizontal overflow ${m.over}px`);
   if (m.clipped.length) problems.push("fixed element clipped by viewport: " + m.clipped.join(","));
+  if (m.tiny.length) problems.push("touch target under 24x24px (WCAG 2.5.8): " + m.tiny.slice(0, 3).join("; "));
+  if (!/not-found|\/login/.test(route) && (m.mains !== 1 || m.h1s !== 1)) problems.push(`landmarks: ${m.mains} <main> and ${m.h1s} <h1> (expected exactly one of each)`);
   if (status >= 400) problems.push("document status " + status);
   if (/\/login/.test(page.url()) && !route.startsWith("/login")) problems.push("redirected to /login (session lost)");
   const note = "";
   if (problems.length && ART) await page.screenshot({ path: path.join(ART, `${slug(tag)}.png`), fullPage: true }).catch(() => {});
-  R(`${route} @${w}px`, problems.length ? "FAIL" : "PASS", problems.length ? problems.slice(0, 6).join(" | ") : `HTTP ${status}${m.small ? `, ${m.small} controls under 40px (informational)` : ""}${note}`);
+  R(`${route} @${w}px`, problems.length ? "FAIL" : "PASS", problems.length ? problems.slice(0, 6).join(" | ") : `HTTP ${status}${m.small ? `, ${m.small} controls under 40px (informational): ${m.smallAll.slice(0, 4).join("; ")}` : ""}${note}`);
   // links (once, at 390): every same-origin link on the page must not 404/500
   if (w === 390) {
     const hrefs = [...new Set(await page.$$eval("a[href^='/']", (as) => as.map((a) => a.getAttribute("href"))))].filter((h) => !/^\/(api|_next|logout)/.test(h)).slice(0, 40), bad = [];
@@ -296,6 +301,42 @@ await flow("flow: admin publishing workflow (draft > review > published, gates r
 });
 
 // ---- accessibility checks on the real app (390px)
+// ---- Phase 11: accessibility of states the plain route sweep never reaches (dialog open, error shown, confirm step, admin screen)
+const axeState = async (page, name) => {
+  if (!axeSource) return A(name, "NOT RUN", "axe-core is not installed");
+  await page.evaluate(axeSource); const ax = await page.evaluate(async () => await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"] } }));
+  const bad = ax.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  A(name, bad.length ? "FAIL" : "PASS", bad.map((v) => `${v.id}(${v.nodes.length}): ${v.nodes[0]?.html?.slice(0, 80)}`).join(" | "));
+};
+const noOverflow = async (page, name) => { const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth); A(name, over > 1 ? "FAIL" : "PASS", over > 1 ? `horizontal overflow ${over}px` : ""); };
+{
+  const c = await flowCtx(), p = await c.newPage();
+  try {
+    await p.goto(BASE + "/dashboard", { waitUntil: "networkidle" }); await p.keyboard.press("Control+k"); const dlg = p.getByRole("dialog", { name: "Search" }); await dlg.waitFor({ timeout: 5000 });
+    await dlg.getByRole("textbox", { name: "Search" }).fill("fixture"); await dlg.locator("a").first().waitFor({ timeout: 10000 });
+    await axeState(p, "state: search palette open with results (axe)");
+    A("state: search palette traps focus inside the dialog", (await p.evaluate(() => !!document.activeElement?.closest("[role=dialog]"))) ? "PASS" : "FAIL", "");
+    await p.keyboard.press("Escape");
+    await p.goto(BASE + "/settings", { waitUntil: "networkidle" }); await p.locator("input[name=revision_intervals]").fill("9, 3"); await p.getByRole("button", { name: "Save settings" }).click();
+    await p.getByRole("alert").filter({ hasText: /Revision ladder/ }).waitFor({ timeout: 10000 }); await axeState(p, "state: settings with a validation error shown (axe)");
+    await p.goto(BASE + "/tasks/new", { waitUntil: "networkidle" }); const title = `A11y ${Date.now().toString(36)}`; await p.locator("input[name=title]").fill(title); await p.getByRole("button", { name: "Add task" }).click(); await p.waitForURL(/\/tasks$/, { timeout: 15000 });
+    await p.getByRole("button", { name: `Delete ${title}` }).click(); await p.getByRole("button", { name: "Cancel" }).waitFor(); await axeState(p, "state: task delete confirmation (axe)");
+    await p.getByRole("button", { name: "Delete", exact: true }).click(); await p.getByText(title).first().waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    await p.setViewportSize({ width: 320, height: 700 }); await p.goto(BASE + "/tasks/new", { waitUntil: "networkidle" }); await noOverflow(p, "state: new task form has no horizontal scroll at 320px");
+    await p.goto(BASE + "/notes/new", { waitUntil: "networkidle" }); await noOverflow(p, "state: new note form has no horizontal scroll at 320px");
+  } catch (e) { A("accessibility of interaction states", "FAIL", e.message.split("\n")[0]); } finally { await c.close(); }
+}
+{
+  let ac = null;
+  try { ac = await adminContext(); } catch (e) { A("accessibility of the admin screen", e.blocked ? "BLOCKED" : "FAIL", e.message.split("\n")[0]); }
+  if (ac) try {
+    const p = await ac.newPage();
+    for (const w of [320, 390, 1024]) { await p.setViewportSize({ width: w, height: 800 }); await p.goto(BASE + "/admin", { waitUntil: "networkidle" }); await p.getByRole("heading", { name: "NCERT books" }).waitFor({ timeout: 10000 }); await noOverflow(p, `admin: no horizontal scroll @${w}px`); if (w !== 320) await axeState(p, `admin: axe @${w}px`); }
+    const tiny = await p.evaluate(() => [...document.querySelectorAll("main button, main a[href]")].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height < 40; }).map((el) => (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 40)));
+    A("admin: every button and link is at least 40px tall", tiny.length ? "FAIL" : "PASS", tiny.slice(0, 4).join(" | "));
+  } catch (e) { A("accessibility of the admin screen", "FAIL", e.message.split("\n")[0]); } finally { await ac.close(); }
+}
+
 const a11yCtx = await flowCtx();
 if (reviewHref) { const p = await a11yCtx.newPage(); try {
   await p.goto(BASE + reviewHref, { waitUntil: "networkidle" }); await p.getByRole("button", { name: "Show the material" }).click();

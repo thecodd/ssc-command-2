@@ -53,7 +53,7 @@ export function CommandPalette() {
           <button onClick={close} aria-label="Close search" className="grid h-10 w-10 place-items-center rounded-ctl text-sub hover:bg-surface"><X className="h-5 w-5" /></button>
         </div>
         <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 py-3">
-          {GROUPS.map((g) => <button key={g.label} aria-pressed={filter === g.label} onClick={() => setFilter(filter === g.label ? null : g.label)} className={`chip min-h-[32px] ${filter === g.label ? "chip-on" : ""}`}>{g.label}</button>)}
+          {GROUPS.map((g) => <button key={g.label} aria-pressed={filter === g.label} onClick={() => setFilter(filter === g.label ? null : g.label)} className={`chip min-h-[44px] ${filter === g.label ? "chip-on" : ""}`}>{g.label}</button>)}
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-4">
           {q.trim().length < 2 && <p className="px-3 py-8 text-center text-sm text-mute">Type at least 2 characters. Searches books, chapters, concepts, SSC topics, notes, PYQs, resources and tasks.</p>}

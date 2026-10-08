@@ -2,7 +2,7 @@
 // "page.dev.tsx" files are ONLY routable outside production. In a production build the extension is not registered, so Next never
 // compiles, bundles or routes them (app/(focus)/dev/study-preview/page.dev.tsx is the only importer of tests/fixtures).
 const dev = process.env.NODE_ENV !== "production";
-// Static security headers for every response (the per-request, nonce-based Content-Security-Policy is set in middleware.ts).
+// Static security headers for every response (the per-request, nonce-based Content-Security-Policy is set in proxy.ts).
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },

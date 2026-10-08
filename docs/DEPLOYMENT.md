@@ -1,7 +1,7 @@
 # Deployment
 
 ## Requirements
-- Node 22, a Supabase project (Postgres 15, GoTrue, PostgREST), a host that runs `next start` (Next.js 15, App Router, dynamic rendering).
+- Node 22, a Supabase project (Postgres 15, GoTrue, PostgREST), a host that runs `next start` (Next.js 16, App Router, dynamic rendering).
 - Environment: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. No service-role key is used by the app and none must be set.
 
 ## Database
@@ -19,7 +19,7 @@ npm start
 Every app route is rendered per request (the root layout is `force-dynamic`), because the per-request CSP nonce and the user's session cannot be baked into static HTML.
 
 ## Security posture (verified by `tests/study/hardening.test.ts` and the real-browser gate)
-- `middleware.ts` sets a nonce-based CSP (`script-src 'self' 'nonce-…' 'strict-dynamic'`, no `unsafe-inline`/`unsafe-eval` in production, `frame-ancestors 'none'`, `connect-src` limited to this origin and your Supabase origin) on every response, including redirects and 401s.
+- `proxy.ts` sets a nonce-based CSP (`script-src 'self' 'nonce-…' 'strict-dynamic'`, no `unsafe-inline`/`unsafe-eval` in production, `frame-ancestors 'none'`, `connect-src` limited to this origin and your Supabase origin) on every response, including redirects and 401s.
 - `next.config.mjs` adds nosniff, X-Frame-Options DENY, strict-origin-when-cross-origin referrer policy, a locked-down Permissions-Policy, COOP same-origin and HSTS; `X-Powered-By` is off.
 - Server actions accept up to 6 MB so the 5 MB import cap is reachable (Next's default is 1 MB).
 - Row-level security and the privilege allow-list (migration 014) are the real authorization layer; the app never trusts client-supplied roles.

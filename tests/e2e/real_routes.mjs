@@ -107,8 +107,12 @@ for (const w of VIEWPORTS) { if (reviewHref) await inspect(reviewHref, w); else 
 if (!axeSource) A("axe-core", "NOT RUN", "axe-core is not installed (npm i -D axe-core); no WCAG automation was run");
 
 // ---- flows at 390px
+// Forms are submitted by React handlers: wait until React has attached its props to every form/button/link (that happens at hydration; the root marker alone appears earlier), so a click is never a native (reloading) submit.
+const hydrated = (p) => p.waitForFunction(() => { const els = [...document.querySelectorAll("form, button, a[href]")]; return els.length > 0 && els.every((e) => Object.keys(e).some((k) => k.startsWith("__reactProps"))); }, null, { timeout: 30000 });
+// Every page opened by a flow waits for hydration after goto/reload, so no click can land on a not-yet-interactive page.
+const hydrateAfterNav = (c) => c.on("page", (pg) => { for (const m of ["goto", "reload"]) { const orig = pg[m].bind(pg); pg[m] = async (...a) => { const r = await orig(...a); await hydrated(pg).catch(() => {}); return r; }; } });
 const flowCtx = async () => {
-  const c = await browser.newContext({ storageState: state, viewport: { width: 390, height: 800 } }); c.__log = [];
+  const c = await browser.newContext({ storageState: state, viewport: { width: 390, height: 800 } }); c.__log = []; hydrateAfterNav(c);
   c.on("page", (pg) => {   // keep the last events so a failed flow says what the browser saw, not just which wait timed out
     const add = (x) => { c.__log.push(x.slice(0, 160)); if (c.__log.length > 8) c.__log.shift(); };
     pg.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") add(`console.${m.type()}: ${m.text()}`); });
@@ -161,8 +165,6 @@ await flow("flow: practice (answer, server grading, summary)", async (ctx) => {
 }, practiceHref ? null : "could not start a practice session");
 
 // ---- Phase 8 workspace flows (tasks, notes, resources): every write goes through the real UI and is read back from the server
-// Forms are submitted by React handlers: wait until React has attached its props to every form/button/link (that happens at hydration; the root marker alone appears earlier), so a click is never a native (reloading) submit.
-const hydrated = (p) => p.waitForFunction(() => { const els = [...document.querySelectorAll("form, button, a[href]")]; return els.length > 0 && els.every((e) => Object.keys(e).some((k) => k.startsWith("__reactProps"))); }, null, { timeout: 30000 });
 const uniq = (k) => `E2E ${k} ${Date.now().toString(36)}`;
 const gone = async (loc, t = 15000) => { await loc.first().waitFor({ state: "detached", timeout: t }); };
 await flow("flow: tasks (create due today -> dashboard 'Tasks due today' -> complete -> reopen -> delete only after confirmation)", async (ctx) => {
@@ -264,7 +266,7 @@ await flow("flow: analytics (real numbers only: no NaN/undefined/Infinity, secti
 // ---- Phase 10 flows (admin + content management). The normal CI user is NOT an admin; a second, real admin user is created by the seed.
 const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || `admin.${EMAIL}`;
 const adminContext = async () => {
-  const c = await browser.newContext({ viewport: { width: 1024, height: 900 } }), p = await c.newPage();
+  const c = await browser.newContext({ viewport: { width: 1024, height: 900 } }); hydrateAfterNav(c); const p = await c.newPage();
   await p.goto(BASE + "/login", { waitUntil: "domcontentloaded" }); await p.getByLabel("Email").fill(ADMIN_EMAIL); await p.getByLabel("Password").fill(PASSWORD);
   await p.getByRole("button", { name: /sign in|log in/i }).click();
   try { await p.waitForURL(/\/dashboard/, { timeout: 20000 }); } catch { await c.close(); throw Object.assign(new Error("the CI admin user could not sign in (is the admin seed applied?)"), { blocked: true }); }

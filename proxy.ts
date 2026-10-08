@@ -17,7 +17,7 @@ export function buildCsp(nonce: string, supabaseUrl: string | undefined, isDev =
     "worker-src 'self'", "manifest-src 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
   ].join("; ");
 }
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const nonce = btoa(crypto.randomUUID()), csp = buildCsp(nonce, url);
   const headers = new Headers(req.headers); headers.set("x-nonce", nonce); headers.set("Content-Security-Policy", csp);

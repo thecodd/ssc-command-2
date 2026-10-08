@@ -7,7 +7,7 @@ const root = path.join(__dirname, "../..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 export default async function () {
   await t("hardening: the CSP has a per-request nonce, no inline scripts, no framing, and allows only our own API origin", () => {
-    const { buildCsp } = require(path.join(root, "middleware.ts"));
+    const { buildCsp } = require(path.join(root, "proxy.ts"));
     const csp: string = buildCsp("abc123", "https://proj.supabase.co/", false);
     const dir = (n: string) => csp.split("; ").find((d) => d.startsWith(n + " ")) ?? "";
     assert.ok(dir("script-src").includes("'nonce-abc123'") && dir("script-src").includes("'strict-dynamic'"));
@@ -31,7 +31,7 @@ export default async function () {
   await t("hardening: pages are never prerendered (nonce needs a request), the supabase client opts into dynamic rendering, health stays public", () => {
     assert.ok(/export const dynamic = "force-dynamic"/.test(read("app/layout.tsx")));
     assert.ok(/const jar = cookies\(\)/.test(read("lib/supabase/server.ts")), "cookies() must be called eagerly so callers are dynamic");
-    assert.ok(read("middleware.ts").includes('"/api/health"'));
+    assert.ok(read("proxy.ts").includes('"/api/health"'));
     assert.ok(!/getUser|createClient|requireUser/.test(read("app/api/health/route.ts")), "health must not touch data");
   });
 }

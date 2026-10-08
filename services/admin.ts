@@ -14,7 +14,8 @@ export async function createSscTopic(v: { subject_id: string; title: string; pri
 export async function updateSscTopic(id: string, v: Row) { const { sb } = await requireAdmin(); ok((await sb.from("ssc_topics").update(v).eq("id", id)).error); }
 export async function archiveSscTopic(id: string) { const { sb } = await requireAdmin(); ok((await sb.from("ssc_topics").update({ archived: true }).eq("id", id)).error); }
 
-export type PublishStatus = "draft" | "in_review" | "published" | "archived";
+import type { PublishStatus } from "@/lib/admin/publish";
+export type { PublishStatus };
 export async function setPublishStatus(kind: "book" | "ssc_exam", id: string, to: PublishStatus) {
   const { sb } = await requireAdmin(); const { error } = await sb.rpc("set_publish_status", { p_kind: kind, p_id: id, p_to: to }); ok(error);
 }
@@ -30,3 +31,25 @@ export async function createOfficialResource(v: { entity_type: string; entity_id
   const { sb } = await requireAdmin(); ok((await sb.from("resources").insert({ ...v, user_id: null })).error);
 }
 export async function deleteOfficialResource(id: string) { const { sb } = await requireAdmin(); ok((await sb.from("resources").delete().eq("id", id).is("user_id", null)).error); }
+
+export interface PublishRow {
+  kind: "book" | "ssc_exam"; id: string; title: string; subtitle: string | null; status: PublishStatus;
+  sourceId: string | null; sourceName: string | null; sourceVerified: boolean; official: boolean; notificationUrl: string | null;
+}
+/** Every official container with its publishing state, for the admin screen (RLS shows drafts to admins only). */
+export async function listPublishing(): Promise<PublishRow[]> {
+  const { sb } = await requireAdmin();
+  const [books, exams, sources] = await Promise.all([
+    sb.from("books").select("id,title,edition,academic_year,status,source_id").order("title").limit(500),
+    sb.from("ssc_exams").select("id,name,exam_version,status,is_official,notification_url,source_id").order("exam_version").limit(500),
+    sb.from("sources").select("id,name,is_verified").limit(1000),
+  ]);
+  for (const r of [books, exams, sources]) ok(r.error);
+  const src = new Map(((sources.data ?? []) as { id: string; name: string; is_verified: boolean }[]).map((s) => [s.id, s]));
+  const of = (id: string | null) => { const s = id ? src.get(id) : undefined; return { sourceId: id, sourceName: s?.name ?? null, sourceVerified: !!s?.is_verified }; };
+  const b = ((books.data ?? []) as { id: string; title: string; edition: string | null; academic_year: string | null; status: PublishStatus; source_id: string | null }[]).map((x): PublishRow => ({
+    kind: "book", id: x.id, title: x.title, subtitle: [x.edition, x.academic_year].filter(Boolean).join(" · ") || null, status: x.status, ...of(x.source_id), official: false, notificationUrl: null }));
+  const e = ((exams.data ?? []) as { id: string; name: string; exam_version: string; status: PublishStatus; is_official: boolean; notification_url: string | null; source_id: string | null }[]).map((x): PublishRow => ({
+    kind: "ssc_exam", id: x.id, title: `${x.name} ${x.exam_version}`, subtitle: null, status: x.status, ...of(x.source_id), official: x.is_official, notificationUrl: x.notification_url }));
+  return [...b, ...e];
+}

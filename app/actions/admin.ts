@@ -18,3 +18,21 @@ export async function updateMappingAction(_: ActionState, fd: FormData) {
 export async function deleteMappingAction(_: ActionState, fd: FormData) {
   return done(await safe(async () => { await A.deleteMapping(str(fd, "id")!); }), "Mapping deleted");
 }
+
+// ---- Publishing workflow (admin only; the database re-checks every rule: admin, transition order, source/content gates).
+import { isUuid } from "@/lib/filters";
+import { canMove, isPublishKind, isPublishStatus } from "@/lib/admin/publish";
+type R = { ok: true } | { ok: false; error: string };
+const after = (r: R): R => { if (r.ok) revalidatePath("/", "layout"); return r; };
+export async function setPublishStatusAction(kind: string, id: string, from: string, to: string): Promise<R> {
+  return after(await safe(async () => {
+    if (!isPublishKind(kind) || !isUuid(id) || !isPublishStatus(from) || !isPublishStatus(to) || !canMove(from, to)) throw new Error("That status change is not allowed.");
+    await A.setPublishStatus(kind, id, to);
+  }));
+}
+export async function verifySourceAction(sourceId: string, verified: boolean): Promise<R> {
+  return after(await safe(async () => { if (!isUuid(sourceId)) throw new Error("Unknown source."); await A.verifySource(sourceId, !!verified); }));
+}
+export async function setExamOfficialAction(examId: string, official: boolean): Promise<R> {
+  return after(await safe(async () => { if (!isUuid(examId)) throw new Error("Unknown exam version."); await A.setExamOfficial(examId, !!official); }));
+}

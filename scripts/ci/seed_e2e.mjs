@@ -39,3 +39,12 @@ if (q.code !== 0 || !/^[0-9a-f-]{36}$/.test(uid)) { console.error("the CI user w
 const p = run("psql", [url, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-v", `uid=${uid}`, "-f", path.join(root, "database/tests/ci/e2e_seed.sql")]);
 if (p.code !== 0) { console.error("e2e seed SQL failed: " + p.stderr.trim().split("\n").slice(0, 4).join(" | ")); process.exit(1); }
 console.log(`seeded CI fixtures for user ${uid.slice(0, 8)}...`);
+// ---- second user for the Phase 10 admin flow: a REAL signup, then promoted through the superuser connection (the API can never self-promote), plus draft curriculum fixtures.
+const adminEmail = E.E2E_ADMIN_EMAIL || `admin.${E.E2E_EMAIL}`;
+const ar = await fetch(`${api}/auth/v1/signup`, { method: "POST", headers: { apikey: E.NEXT_PUBLIC_SUPABASE_ANON_KEY, "content-type": "application/json" }, body: JSON.stringify({ email: adminEmail, password: E.E2E_PASSWORD }) });
+const abody = await ar.text();
+if (!ar.ok && !/already|registered/i.test(abody)) { console.error(`admin signup failed: HTTP ${ar.status}`); process.exit(1); }
+const esc = (t) => t.replace(/'/g, "''");
+const pa = run("psql", [url, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-c", `update public.profiles set is_admin = true where id = (select id from auth.users where email = '${esc(adminEmail)}')`, "-f", path.join(root, "database/tests/ci/e2e_admin_seed.sql")]);
+if (pa.code !== 0) { console.error("admin seed failed: " + pa.stderr.trim().split("\n").slice(0, 4).join(" | ")); process.exit(1); }
+console.log("seeded the CI admin user and draft curriculum fixtures");

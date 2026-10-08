@@ -244,6 +244,57 @@ await flow("flow: analytics (real numbers only: no NaN/undefined/Infinity, secti
   if (!(await page.getByRole("list", { name: "Minutes studied per day" }).locator("li").count() === 14)) throw new Error("the study-time chart must have exactly 14 days");
 });
 
+// ---- Phase 10 flows (admin + content management). The normal CI user is NOT an admin; a second, real admin user is created by the seed.
+const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || `admin.${EMAIL}`;
+const adminContext = async () => {
+  const c = await browser.newContext({ viewport: { width: 1024, height: 900 } }), p = await c.newPage();
+  await p.goto(BASE + "/login", { waitUntil: "domcontentloaded" }); await p.getByLabel("Email").fill(ADMIN_EMAIL); await p.getByLabel("Password").fill(PASSWORD);
+  await p.getByRole("button", { name: /sign in|log in/i }).click();
+  try { await p.waitForURL(/\/dashboard/, { timeout: 20000 }); } catch { await c.close(); throw Object.assign(new Error("the CI admin user could not sign in (is the admin seed applied?)"), { blocked: true }); }
+  await p.close(); return c;
+};
+await flow("flow: admin screens are closed to normal users (no publish controls, drafts invisible)", async (ctx) => {
+  const page = await ctx.newPage();
+  for (const url of ["/admin", "/admin/import"]) {
+    await page.goto(BASE + url, { waitUntil: "networkidle" }); await page.getByText("Admins only").waitFor({ timeout: 10000 });
+    if (await page.getByRole("button", { name: /Publish|Send for review|Verify source|Mark official/ }).count() || await page.locator('input[type=file]').count()) throw new Error(`${url} shows admin controls to a normal user`);
+  }
+  await page.goto(BASE + "/syllabus", { waitUntil: "networkidle" });
+  if (await page.getByRole("link", { name: "Admin tools" }).count()) throw new Error("the Admin link is shown to a normal user");
+  await page.goto(BASE + "/search?q=zqdraft", { waitUntil: "networkidle" });
+  if (await page.getByText("CI Fixture Draft Chapter").count()) throw new Error("a DRAFT chapter is visible to a normal user");
+});
+await flow("flow: admin publishing workflow (draft > review > published, gates refuse, archive/restore, verify + official)", async () => {
+  const actx = await adminContext();
+  try {
+    const page = await actx.newPage(); await page.goto(BASE + "/admin", { waitUntil: "networkidle" });
+    const card = (t) => page.locator("li").filter({ has: page.getByText(t, { exact: true }) });
+    const book = card("CI Fixture Draft Book"), nosrc = card("CI Fixture Draft Book without source"), exam = card("CI Fixture Draft Exam CI-DRAFT");
+    const status = async (c, t) => c.getByText(`Status: ${t}`).waitFor({ timeout: 15000 });
+    await status(book, "Draft");
+    await page.getByRole("button", { name: "Send for review: CI Fixture Draft Book", exact: true }).click(); await status(book, "In review");
+    // a book with no source must be refused by the database gate, and stay in review
+    await page.getByRole("button", { name: "Send for review: CI Fixture Draft Book without source" }).click(); await status(nosrc, "In review");
+    await page.getByRole("button", { name: "Publish: CI Fixture Draft Book without source" }).click();
+    await nosrc.getByRole("alert").filter({ hasText: /source is required/i }).waitFor({ timeout: 15000 }); await status(nosrc, "In review");
+    // a book with a source publishes, and only then does a normal learner see its chapter
+    await page.getByRole("button", { name: "Publish: CI Fixture Draft Book", exact: true }).click(); await status(book, "Published");
+    const learner = await browser.newContext({ storageState: state, viewport: { width: 390, height: 800 } }), lp = await learner.newPage();
+    try {
+      await lp.goto(BASE + "/search?q=zqdraft", { waitUntil: "networkidle" }); await lp.getByText("CI Fixture Draft Chapter zqdraft").first().waitFor({ timeout: 15000 });
+      await page.getByRole("button", { name: "Archive: CI Fixture Draft Book", exact: true }).click(); await status(book, "Archived");
+      await page.getByRole("button", { name: "Restore: CI Fixture Draft Book", exact: true }).click(); await status(book, "Published");
+    } finally { await learner.close(); }
+    // exam: official needs a verified source; the gate refuses first, then verify, then it works
+    await status(exam, "Draft");
+    await page.getByRole("button", { name: "Mark official: CI Fixture Draft Exam CI-DRAFT" }).click();
+    await exam.getByRole("alert").filter({ hasText: /verified source/i }).waitFor({ timeout: 15000 });
+    await page.getByRole("button", { name: "Verify source of CI Fixture Draft Exam CI-DRAFT" }).click(); await exam.getByText(/\(verified\)/).waitFor({ timeout: 15000 });
+    await page.getByRole("button", { name: "Mark official: CI Fixture Draft Exam CI-DRAFT" }).click(); await exam.getByText(/Official$/).waitFor({ timeout: 15000 });
+    await page.reload({ waitUntil: "networkidle" }); await status(book, "Published"); await status(card("CI Fixture Draft Exam CI-DRAFT"), "Draft");
+  } finally { await actx.close(); }
+});
+
 // ---- accessibility checks on the real app (390px)
 const a11yCtx = await flowCtx();
 if (reviewHref) { const p = await a11yCtx.newPage(); try {

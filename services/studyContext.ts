@@ -111,7 +111,9 @@ async function loadPyq(sb: Db, uid: string, base: Base, links: StudyLink[]): Pro
     return { scope: "topic", total: s.total, attempted: s.attempts, accuracyPct: pctOf(s.correct, s.attempts), rows: [], practiceScope: s.total > 0 ? { scope: "ssc_topic", id: base.entity.id } : null };
   }
   if (t === "ssc_subtopic") {
-    const q = await sb.from("pyq_subtopics").select("pyq_id,pyqs!inner(archived,has_valid_key)").eq("ssc_subtopic_id", base.entity.id).eq("pyqs.archived", false).eq("pyqs.has_valid_key", true).limit(200);
+    // pyq_subtopics reaches pyqs only through pyq_topics (composite FK), so the embed goes through it.
+    const q = await sb.from("pyq_subtopics").select("pyq_id,pyq_topics!inner(pyqs!inner(archived,has_valid_key))").eq("ssc_subtopic_id", base.entity.id)
+      .eq("pyq_topics.pyqs.archived", false).eq("pyq_topics.pyqs.has_valid_key", true).limit(200);
     if (q.error) return err(q.error);
     const ids = ((q.data ?? []) as { pyq_id: string }[]).map((r) => r.pyq_id);
     let attempts = 0, correct = 0;

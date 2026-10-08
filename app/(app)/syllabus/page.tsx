@@ -10,7 +10,8 @@ import { parseSyllabusFilters } from "@/lib/filters";
 import type { SyllabusItem } from "@/types/curriculum";
 
 type SP = Record<string, string | undefined>;
-export default async function Syllabus({ searchParams: sp }: { searchParams: SP }) {
+export default async function Syllabus(props: { searchParams: Promise<SP> }) {
+  const sp = await props.searchParams;
   const f = parseSyllabusFilters(sp);
   const filtered = Object.values(f).some(Boolean);
   const [{ items, total, truncated }, options, admin] = await Promise.all([getSyllabus(f), getFilterOptions(), currentIsAdmin()]);

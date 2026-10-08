@@ -6,7 +6,8 @@ import { isUuid } from "@/lib/filters";
 
 export const dynamic = "force-dynamic";
 // Validate BEFORE touching the database: unsupported types and malformed ids are a 404, never a query.
-export default async function StudyPage({ params }: { params: { type: string; id: string } }) {
+export default async function StudyPage(props: { params: Promise<{ type: string; id: string }> }) {
+  const params = await props.params;
   const type = parseStudyType(params.type);
   if (!type || !isUuid(params.id)) notFound();
   const ctx = await getStudyContext(type, params.id);

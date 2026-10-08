@@ -6,7 +6,8 @@ import { createResourceAction } from "@/app/actions/workspace";
 import { linkChoices, linkFor } from "@/services/workspace";
 import { RESOURCE_TYPES } from "@/lib/format";
 export const dynamic = "force-dynamic";
-export default async function NewResource({ searchParams }: { searchParams: { type?: string; id?: string } }) {
+export default async function NewResource(props: { searchParams: Promise<{ type?: string; id?: string }> }) {
+  const searchParams = await props.searchParams;
   const [choices, preset] = await Promise.all([linkChoices(), linkFor(searchParams.type, searchParams.id)]);
   return (
     <div className="mx-auto max-w-xl"><PageHeader title="Add a resource" />

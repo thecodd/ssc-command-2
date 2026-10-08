@@ -1,8 +1,10 @@
 # CGL Command
 
 ## Setup
+Production deployment and release checklist: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Changes: [CHANGELOG.md](CHANGELOG.md).
+
 1. `npm install`, copy `.env.example` to `.env.local`, add the Supabase URL + anon key.
-2. In the Supabase SQL editor run **in order**: `database/migrations/001_schema.sql`, `002_search.sql`, `003_search_v2.sql`, `004_hardening.sql`, `005_integrity_indexes.sql`, `006_entity_registry.sql`, `007_progress_sessions.sql`, `008_revision_engine.sql`, `009_pyq_practice.sql`, `010_learning_signals.sql`, `011_curriculum_publishing.sql`. **Use a scratch project first: 005-011 have never been executed.** See `docs/PHASE4_NOTES.md`.
+2. In the Supabase SQL editor run **in order**: `database/migrations/001_schema.sql`, `002_search.sql`, `003_search_v2.sql`, `004_hardening.sql`, `005_integrity_indexes.sql`, `006_entity_registry.sql`, `007_progress_sessions.sql`, `008_revision_engine.sql`, `009_pyq_practice.sql`, `010_learning_signals.sql`, `011_curriculum_publishing.sql`, then 012, 013 and 014 (last). See docs/DEPLOYMENT.md. See `docs/PHASE4_NOTES.md`.
 3. Make yourself admin (SQL editor only; the API cannot change `is_admin`):
    `update profiles set is_admin = true where id = '<your-auth-uid>';`
 4. `npm run dev`. Load verified curriculum at `/admin/import` (samples in `public/samples/` are placeholders).

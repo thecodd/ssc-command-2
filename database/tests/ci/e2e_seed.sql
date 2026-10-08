@@ -37,6 +37,7 @@ select ('c1000000-0000-4000-8000-0000000001' || lpad(n::text, 2, '0'))::uuid, 'c
        (array['A', 'B', 'C', 'D'])[1 + (n % 4)], 'CI fixture explanation ' || n, (array['easy', 'medium', 'hard'])[1 + (n % 3)]::difficulty_t
   from generate_series(1, 12) n;
 insert into pyq_topics (pyq_id, ssc_topic_id) select ('c1000000-0000-4000-8000-0000000001' || lpad(n::text, 2, '0'))::uuid, case when n <= 8 then 'c1000000-0000-4000-8000-000000000041'::uuid else 'c1000000-0000-4000-8000-000000000042'::uuid end from generate_series(1, 12) n;
+insert into pyq_subtopics (pyq_id, ssc_topic_id, ssc_subtopic_id) select ('c1000000-0000-4000-8000-0000000001' || lpad(n::text, 2, '0'))::uuid, 'c1000000-0000-4000-8000-000000000041'::uuid, 'c1000000-0000-4000-8000-000000000051'::uuid from generate_series(1, 4) n;
 commit;
 
 -- ---- the learner's state, through the REAL client RPCs (as the CI user), so the seeded rows are exactly what the app would have produced ----

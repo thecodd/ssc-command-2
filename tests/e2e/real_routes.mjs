@@ -14,7 +14,7 @@ const arg = (n, d) => { const i = process.argv.indexOf(n); return i >= 0 ? proce
 const BASE = (arg("--base-url", process.env.E2E_BASE_URL || "http://127.0.0.1:3000")).replace(/\/$/, ""), OUT = arg("--out", "e2e.json");
 const EMAIL = process.env.E2E_EMAIL, PASSWORD = process.env.E2E_PASSWORD;
 const VIEWPORTS = [320, 360, 390, 412, 1024, 1440];
-const ROUTES = ["/dashboard", "/study", "/revision", "/practice/new?scope=mixed", "/syllabus", "/ncert", "/ssc", "/mapping", "/search?q=fixture", "/pyqs", "/tasks", "/tasks/new", "/notes", "/notes/new", "/resources", "/resources/new", "/analytics", "/settings", "/more"];
+const ROUTES = ["/dashboard", "/study", "/study/ssc_subtopic/c1000000-0000-4000-8000-000000000051", "/revision", "/practice/new?scope=mixed", "/syllabus", "/ncert", "/ssc", "/mapping", "/search?q=fixture", "/pyqs", "/tasks", "/tasks/new", "/notes", "/notes/new", "/resources", "/resources/new", "/analytics", "/settings", "/more"];
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const ART = process.env.E2E_ARTIFACTS_DIR || "";
 if (ART) fs.mkdirSync(ART, { recursive: true });
@@ -151,11 +151,13 @@ await flow("flow: practice (answer, server grading, summary)", async (ctx) => {
 }, practiceHref ? null : "could not start a practice session");
 
 // ---- Phase 8 workspace flows (tasks, notes, resources): every write goes through the real UI and is read back from the server
+// Forms are submitted by React handlers: wait until the page has hydrated so a click is never a native (reloading) submit.
+const hydrated = (p) => p.waitForFunction(() => Object.keys(document).some((k) => k.startsWith("__reactContainer")), null, { timeout: 15000 });
 const uniq = (k) => `E2E ${k} ${Date.now().toString(36)}`;
 const gone = async (loc, t = 15000) => { await loc.first().waitFor({ state: "detached", timeout: t }); };
 await flow("flow: tasks (create due today -> dashboard 'Tasks due today' -> complete -> reopen -> delete only after confirmation)", async (ctx) => {
   const page = await ctx.newPage(), title = uniq("task");
-  await page.goto(BASE + "/tasks/new", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/tasks/new", { waitUntil: "networkidle" }); await hydrated(page);
   await page.locator("input[name=title]").fill(title); await page.locator("select[name=priority]").selectOption("high");
   await page.getByRole("button", { name: "Add task" }).click(); await page.waitForURL(/\/tasks$/, { timeout: 15000 });
   const open = page.locator("section[aria-labelledby=open-h]"), done = page.locator("section[aria-labelledby=done-h]");
@@ -174,7 +176,7 @@ await flow("flow: tasks (create due today -> dashboard 'Tasks due today' -> comp
 });
 await flow("flow: notes (create on a learning item -> search -> edit -> delete after confirmation)", async (ctx) => {
   const page = await ctx.newPage(), title = uniq("note"), word = `zq${Date.now().toString(36)}`;
-  await page.goto(BASE + "/notes/new", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/notes/new", { waitUntil: "networkidle" }); await hydrated(page);
   const sel = page.locator("select[name=link]"); const first = await sel.locator("option").nth(1).getAttribute("value");
   if (!first) throw Object.assign(new Error("no learning item to attach a note to (seed progress for the scratch user)"), { blocked: true });
   await sel.selectOption(first); await page.locator("input[name=title]").fill(title); await page.locator("textarea[name=content]").fill(`first draft ${word}`);
@@ -272,7 +274,7 @@ await flow("flow: admin screens are closed to normal users (no publish controls,
 await flow("flow: admin publishing workflow (draft > review > published, gates refuse, archive/restore, verify + official)", async () => {
   const actx = await adminContext();
   try {
-    const page = await actx.newPage(); await page.goto(BASE + "/admin", { waitUntil: "networkidle" });
+    const page = await actx.newPage(); await page.goto(BASE + "/admin", { waitUntil: "networkidle" }); await hydrated(page);
     const card = (t) => page.locator("li").filter({ has: page.getByText(t, { exact: true }) });
     const book = card("CI Fixture Draft Book"), nosrc = card("CI Fixture Draft Book without source"), exam = card("CI Fixture Draft Exam CI-DRAFT");
     const status = async (c, t) => c.getByText(`Status: ${t}`).waitFor({ timeout: 15000 });
@@ -301,6 +303,35 @@ await flow("flow: admin publishing workflow (draft > review > published, gates r
 });
 
 // ---- accessibility checks on the real app (390px)
+// ---- Phase 14/15 flows: security headers, public/private endpoints, large import upload
+await flow("flow: security headers, CSP and endpoint access (signed in and signed out)", async (ctx) => {
+  const r = await ctx.request.get(BASE + "/dashboard"); const h = r.headers();
+  for (const [k, v] of [["x-content-type-options", /nosniff/], ["x-frame-options", /DENY/], ["referrer-policy", /strict-origin/], ["permissions-policy", /camera=\(\)/], ["strict-transport-security", /max-age/], ["content-security-policy", /script-src[^;]*'nonce-[^']+'[^;]*;/]]) if (!v.test(h[k] ?? "")) throw new Error(`missing or weak header ${k}: ${h[k] ?? "(absent)"}`);
+  if (/unsafe-inline/.test((h["content-security-policy"].match(/script-src[^;]*/) ?? [""])[0])) throw new Error("script-src allows unsafe-inline");
+  if (h["x-powered-by"]) throw new Error("x-powered-by is exposed");
+  const anon = await browser.newContext(), a = anon.request;
+  try {
+    const health = await a.get(BASE + "/api/health"); if (health.status() !== 200 || (await health.json()).status !== "ok") throw new Error("/api/health must be public and ok");
+    const sr = await a.get(BASE + "/api/search?q=fixture"); if (sr.status() !== 401) throw new Error(`signed-out /api/search must be 401, got ${sr.status()}`);
+    const pg = await a.get(BASE + "/dashboard", { maxRedirects: 0 }); if (![302, 303, 307, 308].includes(pg.status()) || !/\/login/.test(pg.headers().location ?? "")) throw new Error(`signed-out /dashboard must redirect to /login, got ${pg.status()}`);
+    if (!/content-security-policy/i.test(Object.keys(pg.headers()).join(","))) throw new Error("redirects must carry the CSP too");
+    const rb = await a.get(BASE + "/robots.txt"); if (!/Disallow: \//.test(await rb.text())) throw new Error("robots.txt must disallow indexing");
+  } finally { await anon.close(); }
+});
+await flow("flow: a 2 MB curriculum file uploads (server action body limit) as admin", async () => {
+  const actx = await adminContext();
+  try {
+    const p = await actx.newPage(); await p.goto(BASE + "/admin/import", { waitUntil: "networkidle" }); await hydrated(p);
+    const sample = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "../../public/samples/import-sample.json"), "utf8");
+    const buffer = Buffer.from(sample + " ".repeat(2 * 1024 * 1024)); // still valid JSON, but well over Next's 1 MB default body limit
+    await p.locator("input[type=file]").setInputFiles({ name: "big.json", mimeType: "application/json", buffer });
+    await p.getByRole("button", { name: "Validate file" }).click();
+    await p.getByRole("status").or(p.getByRole("alert")).filter({ hasText: /File is valid|File has problems/ }).first().waitFor({ timeout: 30000 });
+    if (!(await p.getByText("File is valid").count())) throw new Error("the shipped sample did not validate: " + (await p.getByRole("alert").allInnerTexts()).join(" | ").slice(0, 300));
+    if (await p.getByText(/body exceeded|Body exceeded|1 MB limit/).count()) throw new Error("the upload hit the server action body limit");
+  } finally { await actx.close(); }
+});
+
 // ---- Phase 11: accessibility of states the plain route sweep never reaches (dialog open, error shown, confirm step, admin screen)
 const axeState = async (page, name) => {
   if (!axeSource) return A(name, "NOT RUN", "axe-core is not installed");

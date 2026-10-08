@@ -8,7 +8,8 @@ import { editNoteAction } from "@/app/actions/workspace";
 import { getNote } from "@/services/workspace";
 import { isUuid } from "@/lib/filters";
 export const dynamic = "force-dynamic";
-export default async function NotePage({ params }: { params: { id: string } }) {
+export default async function NotePage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!isUuid(params.id)) notFound();
   const n = await getNote(params.id); if (!n) notFound();
   return (

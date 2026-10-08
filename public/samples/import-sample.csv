@@ -1,4 +1,5 @@
-type,class,subject,book,edition,academic_year,source_url,chapter_number,chapter,relevance,priority,estimated_minutes,concepts,exam,exam_version,is_official,tier,ssc_subject,topic,subtopic,mapping_type,reason,recommended
+type,class,subject,book,edition,academic_year,source_url,chapter_number,chapter,relevance,priority,estimated_minutes,concepts,exam,exam_version,tier,ssc_subject,topic,subtopic,mapping_type,reason,recommended,name
+source,,,,,,https://example.com/replace-with-official-url,,,,,,,,,,,,,,,,PLACEHOLDER source
 ncert,6,PLACEHOLDER subject,PLACEHOLDER book,PLACEHOLDER,PLACEHOLDER,https://example.com/replace,1,PLACEHOLDER chapter,high,medium,60,PLACEHOLDER concept A|PLACEHOLDER concept B,,,,,,,,,,
-ssc,,PLACEHOLDER ssc subject,,,,,,,,high,90,,SSC CGL,PLACEHOLDER,false,PLACEHOLDER tier,,PLACEHOLDER topic,PLACEHOLDER subtopic,,,
-mapping,6,PLACEHOLDER subject,PLACEHOLDER book,,,,,PLACEHOLDER chapter,high,,,,SSC CGL,PLACEHOLDER,,PLACEHOLDER tier,PLACEHOLDER ssc subject,PLACEHOLDER topic,,foundation,PLACEHOLDER reason,true
+ssc,,PLACEHOLDER ssc subject,,,,,,,,high,90,,SSC CGL,PLACEHOLDER,PLACEHOLDER tier,,PLACEHOLDER topic,PLACEHOLDER subtopic,,,,
+mapping,6,PLACEHOLDER subject,PLACEHOLDER book,,,,,PLACEHOLDER chapter,high,,,,SSC CGL,PLACEHOLDER,PLACEHOLDER tier,PLACEHOLDER ssc subject,PLACEHOLDER topic,,foundation,PLACEHOLDER reason,true,

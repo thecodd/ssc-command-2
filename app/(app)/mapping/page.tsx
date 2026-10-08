@@ -12,7 +12,10 @@ import { createMappingAction } from "@/app/actions/admin";
 import { MAPPING_LABEL } from "@/lib/format";
 import { isUuid } from "@/lib/filters";
 
-export default async function MappingPage({ searchParams: sp }: { searchParams: { type?: string; chapter?: string; topic?: string } }) {
+export default async function MappingPage(
+  props: { searchParams: Promise<{ type?: string; chapter?: string; topic?: string }> }
+) {
+  const sp = await props.searchParams;
   const type = sp.type && sp.type in MAPPING_LABEL ? sp.type : undefined;
   const [{ mappings: maps, total, truncated }, admin] = await Promise.all([getMappings({ type, chapterId: isUuid(sp.chapter) ? sp.chapter : undefined, topicId: isUuid(sp.topic) ? sp.topic : undefined }), currentIsAdmin()]);
   const options = admin ? await getMappingOptions() : null;

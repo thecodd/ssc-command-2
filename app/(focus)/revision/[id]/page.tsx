@@ -12,7 +12,8 @@ import { studyHref } from "@/lib/study/routes";
 
 export const dynamic = "force-dynamic";
 // Validate BEFORE touching the database. Another user's schedule id is invisible (RLS) and so a 404, exactly like a missing one.
-export default async function ReviewPage({ params }: { params: { id: string } }) {
+export default async function ReviewPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const id = parseReviewId(params.id);
   if (!id) notFound();
   const state = await getReviewState(id);

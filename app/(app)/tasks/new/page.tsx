@@ -7,7 +7,8 @@ import { linkChoices, linkFor } from "@/services/workspace";
 import { getClock } from "@/services/profile";
 import { PRIORITY_LABEL } from "@/lib/format";
 export const dynamic = "force-dynamic";
-export default async function NewTask({ searchParams }: { searchParams: { type?: string; id?: string } }) {
+export default async function NewTask(props: { searchParams: Promise<{ type?: string; id?: string }> }) {
+  const searchParams = await props.searchParams;
   const [choices, preset, { today }] = await Promise.all([linkChoices(), linkFor(searchParams.type, searchParams.id), getClock()]);
   return (
     <div className="mx-auto max-w-xl"><PageHeader title="New task" />

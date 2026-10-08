@@ -17,7 +17,11 @@ import { isUuid } from "@/lib/filters";
 
 const TABS = [["overview", "Overview"], ["ssc", "SSC Connection"], ["concepts", "Concepts"], ["notes", "Notes"], ["pyqs", "PYQs"], ["resources", "Resources"], ["revision", "Revision"]].map(([id, label]) => ({ id, label }));
 
-export default async function ChapterPage({ params, searchParams }: { params: { id: string }; searchParams: { tab?: string } }) {
+export default async function ChapterPage(
+  props: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   if (!isUuid(params.id)) notFound();
   const c = await getChapterDetail(params.id);
   if (!c) notFound();

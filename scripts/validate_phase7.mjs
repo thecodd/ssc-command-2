@@ -110,7 +110,7 @@ buildOk = npmStage("10", "Production build (npm run build)", "build").status ===
 
 // ------------------------------------------------------------------ 11 real browser + accessibility against the running app
 async function realBrowser() {
-  if (SKIP_APP) { for (const [id, title] of [["11", "Real browser validation (real routes, 5 viewports)"], ["11b", "Accessibility checks on the real app"]]) R.add({ id, title, status: STATUS.NOT_RUN, detail: "skipped by --skip-app (kit self-test run; never a gate run)" }); return; }
+  if (SKIP_APP) { for (const [id, title] of [["11", "Real browser validation (real routes, 6 viewports)"], ["11b", "Accessibility checks on the real app"]]) R.add({ id, title, status: STATUS.NOT_RUN, detail: "skipped by --skip-app (kit self-test run; never a gate run)" }); return; }
   const blockers = [];
   if (!buildOk) blockers.push("production build did not pass (stage 10)");
   if (!dbReady) blockers.push("no validated database (stage 4b)");
@@ -119,28 +119,28 @@ async function realBrowser() {
   if (!sbUrl || !sbKey) blockers.push("NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY not set (they must point at the SAME scratch database and be set before the build)");
   if (!process.env.E2E_EMAIL || !process.env.E2E_PASSWORD) blockers.push("E2E_EMAIL / E2E_PASSWORD not set (a scratch user with seeded study data; see docs/VALIDATION_KIT.md)");
   const mk = (id, title, status, detail, extra = {}) => R.add({ id, title, status, detail, ...extra });
-  if (blockers.length) { mk("11", "Real browser validation (real routes, 5 viewports)", STATUS.BLOCKED, blockers.join("; ")); mk("11b", "Accessibility checks on the real app", STATUS.BLOCKED, "requires stage 11 prerequisites"); return; }
+  if (blockers.length) { mk("11", "Real browser validation (real routes, 6 viewports)", STATUS.BLOCKED, blockers.join("; ")); mk("11b", "Accessibility checks on the real app", STATUS.BLOCKED, "requires stage 11 prerequisites"); return; }
   let server = null, url = baseUrl;
   // `npm run start` forks next-server; killing only npm leaves it serving the OLD build on the port, so the next run would test stale chunks.
   // Spawn in its own process group, kill the whole group, and refuse to start when something already answers on the port.
   const stopServer = () => { if (!server) return; try { if (isWin) server.kill(); else process.kill(-server.pid, "SIGTERM"); } catch {} server = null; };
   if (!url) {
     const busy = await fetch(`http://127.0.0.1:${port}/login`).then(() => true, () => false);
-    if (busy) { mk("11", "Real browser validation (real routes, 5 viewports)", STATUS.BLOCKED, `port ${port} is already in use (a leftover next-server?): stop it or pass --port, otherwise the browser would test a stale build`); mk("11b", "Accessibility checks on the real app", STATUS.NOT_RUN, "server not started"); return; }
+    if (busy) { mk("11", "Real browser validation (real routes, 6 viewports)", STATUS.BLOCKED, `port ${port} is already in use (a leftover next-server?): stop it or pass --port, otherwise the browser would test a stale build`); mk("11b", "Accessibility checks on the real app", STATUS.NOT_RUN, "server not started"); return; }
     server = cp.spawn(isWin ? "npm.cmd" : "npm", ["run", "start", "--", "-p", port], { cwd: root, stdio: ["ignore", "pipe", "pipe"], detached: !isWin, env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } });
     let slog = ""; server.stdout.on("data", (d) => (slog += d)); server.stderr.on("data", (d) => (slog += d)); url = `http://127.0.0.1:${port}`;
     let up = false; for (let i = 0; i < 60 && !up; i++) { await new Promise((r) => setTimeout(r, 1000)); try { const r = await fetch(url + "/login"); up = r.status < 500; } catch {} }
     log("next_start.log", slog);
-    if (!up) { stopServer(); mk("11", "Real browser validation (real routes, 5 viewports)", STATUS.FAIL, "next start did not become ready within 60 s (see next_start.log)"); mk("11b", "Accessibility checks on the real app", STATUS.NOT_RUN, "server not up"); return; }
+    if (!up) { stopServer(); mk("11", "Real browser validation (real routes, 6 viewports)", STATUS.FAIL, "next start did not become ready within 60 s (see next_start.log)"); mk("11b", "Accessibility checks on the real app", STATUS.NOT_RUN, "server not up"); return; }
   }
   const json = path.join(outDir, "e2e.json");
   const r = run("npm", ["run", "--silent", "e2e:real", "--", "--base-url", url, "--out", json], { env: { E2E_BASE_URL: url, E2E_ARTIFACTS_DIR: path.join(outDir, "e2e-artifacts") }, timeoutMs: 20 * 60 * 1000 });
   log("e2e.log", `exit=${r.code}\n${r.stdout}\n${r.stderr}`); stopServer();
   let res = null; try { res = JSON.parse(fs.readFileSync(json, "utf8")); } catch {}
-  if (!res) { mk("11", "Real browser validation (real routes, 5 viewports)", r.code === 3 ? STATUS.BLOCKED : STATUS.FAIL, "the browser harness produced no result file: " + firstLine(r.stderr || r.stdout), { log: "logs/e2e.log" }); mk("11b", "Accessibility checks on the real app", STATUS.NOT_RUN, "no result file"); return; }
+  if (!res) { mk("11", "Real browser validation (real routes, 6 viewports)", r.code === 3 ? STATUS.BLOCKED : STATUS.FAIL, "the browser harness produced no result file: " + firstLine(r.stderr || r.stdout), { log: "logs/e2e.log" }); mk("11b", "Accessibility checks on the real app", STATUS.NOT_RUN, "no result file"); return; }
   const agg = (items) => items.some((i) => i.status === STATUS.FAIL) ? STATUS.FAIL : items.some((i) => i.status === STATUS.BLOCKED) ? STATUS.BLOCKED : items.some((i) => i.status === STATUS.NOT_RUN) ? STATUS.NOT_RUN : STATUS.PASS;
   const fmt = (i) => `${i.status} ${i.name}${i.detail ? " :: " + i.detail : ""}`;
-  mk("11", "Real browser validation (real routes, 5 viewports)", agg(res.routes), `${res.routes.filter((i) => i.status === STATUS.PASS).length}/${res.routes.length} route/viewport/flow checks passed`, { items: res.routes.map(fmt), log: "logs/e2e.log" });
+  mk("11", "Real browser validation (real routes, 6 viewports)", agg(res.routes), `${res.routes.filter((i) => i.status === STATUS.PASS).length}/${res.routes.length} route/viewport/flow checks passed`, { items: res.routes.map(fmt), log: "logs/e2e.log" });
   mk("11b", "Accessibility checks on the real app", agg(res.a11y), `${res.a11y.filter((i) => i.status === STATUS.PASS).length}/${res.a11y.length} passed`, { items: res.a11y.map(fmt) });
 }
 await realBrowser();

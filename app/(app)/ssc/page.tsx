@@ -11,7 +11,7 @@ export default async function Ssc({ searchParams: sp }: { searchParams: { exam?:
   if (!exams.length) return <div><PageHeader title="SSC CGL" /><EmptyState icon={GraduationCap} title="No SSC syllabus yet" hint="Import a verified exam version to start drilling into subjects and topics." actions={[{ href: "/admin/import", label: "Import Curriculum" }, { href: "/syllabus/new", label: "Add Topic" }]} /></div>;
   const exam = exams.find((e) => e.id === sp.exam) ?? exams[0];
   const ov = await getExamOverview(exam.id, sp.tier);
-  const chip = (on: boolean) => `chip min-h-[36px] whitespace-nowrap px-4 text-sm ${on ? "chip-on" : ""}`;
+  const chip = (on: boolean) => `chip min-h-[44px] whitespace-nowrap px-4 text-sm ${on ? "chip-on" : ""}`;
   return (
     <div>
       <PageHeader title="SSC CGL" subtitle="Pick a subject. Drill into topics. Know what to do next." />

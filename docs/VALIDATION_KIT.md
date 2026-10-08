@@ -19,7 +19,7 @@ Cross-platform (Node >= 18; no bash or python needed for the gate). Output: cons
 | 5-7 | Phase 4 / 6 / 7 SQL suites | yes | run as written; counts of total / passed / failed; first failing check; fixtures must be rolled back |
 | 7b | Security regression SQL suite | yes | catalog-driven privilege matrix + cross-user, forged-input and answer-key checks |
 | 8-10 | `npm run typecheck`, `lint`, `build` | yes | the real commands, nothing weakened |
-| 11 / 11b | Real browser + accessibility on the running app | yes | 11 routes x 5 viewports + flows; axe if installed (otherwise NOT RUN) |
+| 11 / 11b | Real browser + accessibility on the running app | yes | 11 routes x 6 viewports + flows; axe if installed (otherwise NOT RUN) |
 | S1-S6 | Supporting: suite freshness, static SQL audit, regeneration identity of 014, Node tests, oracle, fixture smoke | no | evidence only; a FAIL still blocks readiness, a PASS never grants it |
 | 12 | Report | - | writes the files above |
 
@@ -57,3 +57,6 @@ Coverage: `/dashboard /study /revision /revision/[id] /study/[type]/[id] /practi
 1. A SELECT cannot see rows written by a VOLATILE function called in the SAME statement. Run the action in its own statement (`insert into t_ret select 'k', rows_as(...)`) and check the state in the next one. A Node test fails any suite that reintroduces `rows_as(<write>) >= 0 and (select <that write>)`.
 2. `rows_as` consumes every output column, otherwise PostgreSQL never evaluates an unreferenced STABLE/IMMUTABLE function (no error, no privilege check).
 3. Every error the helpers swallow is recorded in `t_errors`; the kit writes it to `logs/suite_<name>.errors.log` (most entries are expected negative tests). Stage S8 writes `logs/diagnostics.log` (read-only catalog facts).
+
+## Accessibility and responsive checks (Phase 11)
+Every route runs at 320, 360, 390, 412, 1024 and 1440 px (320 is the WCAG 1.4.10 reflow width). Each run FAILS on horizontal overflow, a fixed element clipped by the viewport, a touch target under 24x24 px (WCAG 2.5.8; visually hidden radios/checkboxes are measured by their label), or a page that does not have exactly one `<main>` and one `<h1>`. Controls under 40 px are listed as informational. axe-core (WCAG 2.0/2.1 A and AA, serious and critical) runs at 390 and 1024 px. States the route sweep cannot reach are checked separately: search palette open, a validation error shown, the delete confirmation, forms at 320 px, and the admin screen (as the CI admin user) at 320/390/1024 px.

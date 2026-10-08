@@ -38,15 +38,15 @@ export function PracticeRunner({ session, info, returnToReview = false }: { sess
       <header className="sticky top-0 z-20 border-b border-line bg-bg/90 pt-[env(safe-area-inset-top)] backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center gap-3 px-3 py-2 sm:px-4">
           <Link href={info.backHref} className="-ml-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-ctl px-2 text-sm text-sub hover:text-ink"><ArrowLeft className="h-4 w-4" aria-hidden />Exit</Link>
-          <div className="min-w-0 flex-1"><p className="truncate text-[11px] uppercase tracking-widest text-mute">{info.kicker}</p><p className="truncate text-sm font-medium">{info.title}</p></div>
-          {!view && <button type="button" aria-pressed={showTimer} onClick={() => setShowTimer((v) => !v)} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-ctl px-2 text-sm text-sub hover:text-ink" aria-label="Show question timer">
+          <div className="min-w-0 flex-1"><p className="truncate text-[11px] uppercase tracking-widest text-mute">{info.kicker}</p>{view ? <p className="truncate text-sm font-medium">{info.title}</p> : <h1 className="truncate text-sm font-medium">{info.title}</h1>}</div>
+          {!view && <button type="button" aria-pressed={showTimer} onClick={() => setShowTimer((v) => !v)} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-ctl px-2 text-sm text-sub hover:text-ink" aria-label="Show question timer">
             <Timer className="h-4 w-4" aria-hidden />{timing ? <span className="tabular-nums" role="timer" aria-live="off">{clockText(Math.max(0, Math.floor((now - s.shownAt) / 1000)))}</span> : null}</button>}
         </div>
         {!view && <div className="mx-auto max-w-2xl px-3 pb-2 sm:px-4"><div className="h-1 overflow-hidden rounded-full bg-line" role="progressbar" aria-label="Questions answered" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}><div className="h-full rounded-full bg-lime transition-[width] duration-200" style={{ width: `${total ? (100 * done) / total : 0}%` }} /></div>
           <p className="mt-1 text-right text-xs tabular-nums text-mute">{done} of {total} answered</p></div>}
       </header>
 
-      <main className="mx-auto max-w-2xl px-4 pb-32 pt-6 sm:pb-12">
+      <div className="mx-auto max-w-2xl px-4 pb-32 pt-6 sm:pb-12">
         {api.mode === "fixture" && <p role="note" className="mb-4 rounded-ctl border border-amber-400/40 bg-amber-400/10 p-2 text-center text-xs text-amber-200">FIXTURE DATA: development preview. Nothing here is real.</p>}
         {s.error && (
           <div role="alert" className="mb-4 flex items-start gap-3 rounded-ctl border border-red-500/40 bg-red-500/10 p-3 text-sm">
@@ -57,7 +57,7 @@ export function PracticeRunner({ session, info, returnToReview = false }: { sess
           : s.phase === "finishing" ? <p role="status" className="py-16 text-center text-sub">Wrapping up…</p>
           : !s.question ? (s.error ? null : <div aria-busy="true" aria-label="Loading question" className="space-y-4"><div className="skeleton h-6 w-1/3 rounded" /><div className="skeleton h-24 rounded-card" /><div className="skeleton h-14 rounded-ctl" /><div className="skeleton h-14 rounded-ctl" /></div>)
           : <QuestionView s={s} busy={busy} last={isLast(s)} onPick={(k) => dispatch({ t: "pick", key: k })} onSubmit={() => void ctl.submit()} onNext={() => void ctl.next()} />}
-      </main>
+      </div>
     </div>
   );
 }

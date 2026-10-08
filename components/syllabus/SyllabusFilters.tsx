@@ -76,9 +76,9 @@ export function SyllabusFilters({ options }: { options: Opts }) {
       </div>
       <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0" role="group" aria-label="Source">
         {[["", "All"], ["ncert", "NCERT"], ["ssc", "SSC"]].map(([v, l]) => (
-          <button key={v} onClick={() => update({ source: v })} aria-pressed={vals.source === v} className={`chip min-h-[36px] px-4 text-sm ${vals.source === v ? "chip-on" : ""}`}>{l}</button>
+          <button key={v} onClick={() => update({ source: v })} aria-pressed={vals.source === v} className={`chip min-h-[44px] px-4 text-sm ${vals.source === v ? "chip-on" : ""}`}>{l}</button>
         ))}
-        {(active > 0 || vals.q || vals.source) && <button onClick={clearAll} className="chip min-h-[36px] px-3 text-sm">Clear all</button>}
+        {(active > 0 || vals.q || vals.source) && <button onClick={clearAll} className="chip min-h-[44px] px-3 text-sm">Clear all</button>}
       </div>
       <div className="hidden grid-cols-6 gap-2 lg:grid">{fields}</div>
       {open && (

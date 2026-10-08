@@ -16,7 +16,7 @@ export default async function MappingPage({ searchParams: sp }: { searchParams: 
   const type = sp.type && sp.type in MAPPING_LABEL ? sp.type : undefined;
   const [{ mappings: maps, total, truncated }, admin] = await Promise.all([getMappings({ type, chapterId: isUuid(sp.chapter) ? sp.chapter : undefined, topicId: isUuid(sp.topic) ? sp.topic : undefined }), currentIsAdmin()]);
   const options = admin ? await getMappingOptions() : null;
-  const chip = (on: boolean) => `chip min-h-[36px] whitespace-nowrap px-4 text-sm ${on ? "chip-on" : ""}`;
+  const chip = (on: boolean) => `chip min-h-[44px] whitespace-nowrap px-4 text-sm ${on ? "chip-on" : ""}`;
   return (
     <div>
       <PageHeader title="NCERT → SSC" subtitle="See which school foundations power which exam topics." />

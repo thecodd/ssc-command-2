@@ -1,4 +1,5 @@
-import { ActionForm, fieldCls } from "@/components/ui/ActionForm";
+import { ActionForm } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 import { addNoteAction, addResourceAction } from "@/app/actions/content";
 import { RESOURCE_TYPES } from "@/lib/format";
 import { ExternalLink } from "lucide-react";

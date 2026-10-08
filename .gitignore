@@ -6,3 +6,4 @@ node_modules
 reports/
 tests/browser/dist/
 *.tsbuildinfo
+next-env.d.ts

@@ -1,6 +1,7 @@
 import { LogOut } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { ActionForm, fieldCls } from "@/components/ui/ActionForm";
+import { ActionForm } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { signOutAction, updateProfileAction } from "@/app/actions/workspace";
 export const dynamic = "force-dynamic";

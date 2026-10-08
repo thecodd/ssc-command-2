@@ -4,6 +4,21 @@ Status words: **PASS** = executed and succeeded. **FAIL** = executed and failed.
 Two areas below are kept strictly apart: PART A is what was executed in this sandbox; PART B is what must still be executed on a real environment. Nothing in A answers B.
 
 ---
+# LATEST: full runtime run, 2026-10-08 (report `reports/phase7/2026-10-08T08-33-23-123Z`): **READY FOR PHASE 8**
+Executed in a cloud sandbox that reproduces the CI workflow step for step: `postgres:15`, `supabase/gotrue:v2.158.1`, `postgrest/postgrest:v12.2.3` (Docker, host network), `scripts/ci/prepare_database.mjs`, `01_ci_auth_compat.sql`, `scripts/ci/api_gateway.mjs`, `npm install`, then `npm run --silent validate:phase7 -- --db-url "$DATABASE_URL" --shim-auth`. Not a GitHub Actions run.
+Only local difference: Chromium 141 is preinstalled and its CDN is unreachable, so Playwright was installed at 1.56.1 (`--no-save`) to match it.
+
+Every mandatory stage PASS: migrations 001-014; Phase 4 SQL 334/334; Phase 6 SQL 73/73; Phase 7 SQL 53/53; security SQL 56/56; CI seed; typecheck; lint; build; real browser 137/137 (19 routes x 5 viewports + review/stale-tab/study/practice flows); accessibility 57/57. Supporting S6 (fixture smoke) is BLOCKED (needs global react/esbuild) and is not part of the verdict.
+
+Defects the first executions found and fixed before this verdict:
+- **Stale revision submit hung forever** (stale-tab flow): `review_revision` raised SQLSTATE `40001`; PostgREST retries serialization failures, so the call was re-run endlessly and the second tab stayed on "Saving...". The guard now raises `PT409` (HTTP 409, mapped to `conflict`). New Phase 7 check asserts PT409 and never 40001/40P01.
+- **Form fields unstyled on server pages** (axe colour-contrast on /settings, /tasks/new, /notes/new, /resources/new): `fieldCls` was exported from a `"use client"` module, so server components received a client reference and rendered `class="[object Object]"`. Moved to `components/ui/field.ts`.
+- **Kit left `next-server` running** after stage 11 (it killed only `npm`), so the next run tested a stale build. The server now runs in its own process group, the whole group is stopped, and stage 11 refuses to start when the port is already taken.
+- **Harness false positive**: Chromium intermittently reports Next.js server-action fetches as `net::ERR_ABORTED` even though the app read the whole body. The harness now proves delivery in the page (`ACTION_BODY_PROBE`) and tolerates the abort only with that proof.
+- **Practice flow race in the harness**: it sampled the loading skeleton right after "Next question"; it now waits for the next question or the summary.
+- Next.js 14.2.15 -> 14.2.35 (npm security advisory on 14.2.15). `package-lock.json` added.
+
+---
 # PART A: CURRENT SANDBOX RESULT (run 2026-10-02T05-37-59-849Z, `node scripts/validate_phase7.mjs`)
 
 ## A1. Environment

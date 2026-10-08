@@ -60,7 +60,7 @@ export default async function () {
   });
   await t("classifyError: PG codes first, never leaks raw text", () => {
     assert.equal(classifyError({ code: "P0002", message: "relation foo" }), "not_found"); assert.equal(classifyError({ code: "55000" }), "ended");
-    assert.equal(classifyError({ code: "40001" }), "conflict"); assert.equal(classifyError({ code: "22023" }), "invalid"); assert.equal(classifyError({ code: "42501" }), "auth");
+    assert.equal(classifyError({ code: "PT409" }), "conflict"); assert.equal(classifyError({ code: "40001" }), "conflict"); assert.equal(classifyError({ code: "22023" }), "invalid"); assert.equal(classifyError({ code: "42501" }), "auth");
     assert.equal(classifyError(new Error("TypeError: fetch failed")), "network"); assert.equal(classifyError(new Error("You're signed out. Sign in again.")), "auth");
     assert.equal(classifyError({ message: 'duplicate key value violates "pk_x"' }), "unknown");
     assert.doesNotMatch(userMessage("unknown"), /duplicate|violates|relation|pk_/);

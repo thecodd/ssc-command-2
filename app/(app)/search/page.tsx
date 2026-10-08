@@ -3,7 +3,7 @@ import { Search as SearchIcon, SearchX } from "lucide-react";
 import { searchPage, type SearchHit } from "@/services/search";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { fieldCls } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 export const dynamic = "force-dynamic";
 const GROUPS: { label: string; kinds: string[] }[] = [
   { label: "NCERT", kinds: ["book", "chapter", "concept"] }, { label: "SSC", kinds: ["ssc_subject", "ssc_topic", "ssc_subtopic"] }, { label: "PYQs", kinds: ["pyq"] },

@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { ExternalLink, Pencil, StickyNote } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
-import { ActionForm, fieldCls } from "@/components/ui/ActionForm";
+import { ActionForm } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 import { addNoteAction, addResourceAction, updateNoteAction } from "@/app/actions/content";
 import { RESOURCE_TYPES } from "@/lib/format";
 import type { StudyMaterial, StudyNote } from "@/types/study";

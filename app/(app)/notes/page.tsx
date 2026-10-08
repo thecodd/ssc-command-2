@@ -3,7 +3,7 @@ import { Plus, Search, StickyNote } from "lucide-react";
 import { listNotes } from "@/services/workspace";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { fieldCls } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 export const dynamic = "force-dynamic";
 export default async function Notes({ searchParams }: { searchParams: { q?: string } }) {
   const q = (searchParams.q ?? "").slice(0, 80), notes = await listNotes(q);

@@ -1,4 +1,4 @@
-import { fieldCls } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 import { MAPPING_LABEL, RELEVANCE_LABEL } from "@/lib/format";
 export function MappingFields({ d }: { d?: { type: string; relevance: string; reason: string | null; recommended: boolean } }) {
   return (

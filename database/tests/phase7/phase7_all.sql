@@ -173,6 +173,8 @@ select pg_temp.check_('013 the duplicate changed nothing (still one history row,
 insert into t_runs (k, id) select 'p7t1', id from revision_schedule where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e' and not done;
 select pg_temp.check_('013 wrong expected_step (3, actual 2) is rejected and writes nothing', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'easy', 3)$f$, (select id from t_runs where k = 'p7t1'))) = -1
   and (select count(*) = 0 from revision_reviews where user_id = 'eda6c4d2-347b-52c8-92c4-bd428277acd4' and entity_id = 'f1ce1c0d-5eed-5602-b11f-afc5a71e886e') and (select step = 2 from revision_schedule where id = (select id from t_runs where k = 'p7t1')));
+select pg_temp.check_('013 a stale expected_step is rejected with PT409 (HTTP 409), never a retryable 40001/40P01 that PostgREST would re-run forever',
+  exists (select 1 from t_errors where stmt like '%review_revision%' and sqlstate = 'PT409') and not exists (select 1 from t_errors where stmt like '%review_revision%' and sqlstate in ('40001', '40P01')));
 select pg_temp.check_('013 unknown rating rejected', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'perfect', 2)$f$, (select id from t_runs where k = 'p7t1'))) = -1);
 select pg_temp.check_('013 confidence outside 1..5 rejected', pg_temp.rows_as('eda6c4d2-347b-52c8-92c4-bd428277acd4', format($f$select public.review_revision(%L, 'good', 2, 9)$f$, (select id from t_runs where k = 'p7t1'))) = -1);
 -- ---------------- Hard ----------------

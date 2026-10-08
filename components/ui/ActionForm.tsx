@@ -16,4 +16,3 @@ export function ActionForm({ action, submit, children, className = "space-y-3", 
     </form>
   );
 }
-export const fieldCls = "min-h-[44px] w-full rounded-ctl border border-line bg-surface px-3 text-base outline-none focus:border-lime lg:text-sm";

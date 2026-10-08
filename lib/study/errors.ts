@@ -21,7 +21,7 @@ export function classifyError(e: unknown): ErrorCode {
   switch (x.code) {
     case "P0002": return "not_found";
     case "55000": return "ended";
-    case "40001": return "conflict";
+    case "PT409": case "40001": return "conflict";
     case "22023": case "23514": case "23505": case "22P02": return "invalid";
     case "42501": case "PGRST301": case "PGRST302": return "auth";
   }

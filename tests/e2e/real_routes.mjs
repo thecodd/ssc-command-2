@@ -75,6 +75,7 @@ async function inspect(route, w) {
     const small = [...document.querySelectorAll("button, a[href], input:not([type=hidden]), select, textarea, summary")].filter((el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && (r.height < 40 || r.width < 40) && !el.closest("[data-inline]") && !(el.tagName === "A" && el.closest("p, li, span") && el.parentElement && el.parentElement.tagName !== "LI" && r.height >= 16 && getComputedStyle(el).display === "inline"); }).length;
     return { over, clipped, small, h1: document.querySelector("h1")?.textContent?.trim() ?? null, text: document.body.innerText.slice(0, 300) };
   });
+  await tracker.settle();
   if (m.over > 1) problems.push(`horizontal overflow ${m.over}px`);
   if (m.clipped.length) problems.push("fixed element clipped by viewport: " + m.clipped.join(","));
   if (status >= 400) problems.push("document status " + status);
@@ -138,6 +139,8 @@ await flow("flow: practice (answer, server grading, summary)", async (ctx) => {
     if (await page.getByRole("heading", { name: /Session summary/ }).count()) break;
     const radios = page.getByRole("radio"); if (await radios.count()) { await pickRadio(page, null); await page.getByRole("button", { name: "Submit answer" }).click(); await page.getByRole("heading", { name: /Correct|Incorrect/ }).first().waitFor({ timeout: 10000 }); }
     const nxt = page.getByRole("button", { name: /Next question|See summary/ }); if (await nxt.count()) await nxt.click(); else break;
+    // the next question (or the summary) is fetched from the server after the click: wait for it instead of sampling the loading skeleton
+    await page.getByRole("radio").or(page.getByRole("heading", { name: /Session summary/ })).first().waitFor({ timeout: 15000 });
   }
   await expectText(page, /Session summary/, 15000);
 }, practiceHref ? null : "could not start a practice session");

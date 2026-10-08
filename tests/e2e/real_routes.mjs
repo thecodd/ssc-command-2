@@ -201,6 +201,49 @@ await flow("flow: resources (official is read-only, saved link opens safely in a
   if (await page.locator(`a[href="${url}"]`).count()) throw new Error("the deleted resource came back after a reload");
 });
 
+// ---- Phase 9 flows (search, settings, analytics): real UI, values read back from the server
+await flow("flow: search (page: too short / no match / hits; Ctrl+K palette opens, finds, closes on Escape)", async (ctx) => {
+  const page = await ctx.newPage();
+  await page.goto(BASE + "/search?q=a", { waitUntil: "networkidle" });
+  await page.getByText("Type at least two characters.").waitFor({ timeout: 10000 });
+  await page.goto(BASE + "/search?q=zzqxnomatch", { waitUntil: "networkidle" });
+  await page.getByText(/Nothing found for/).waitFor({ timeout: 10000 });
+  await page.goto(BASE + "/search", { waitUntil: "networkidle" });
+  await page.getByRole("searchbox").fill("fixture"); await page.keyboard.press("Enter"); await page.waitForURL(/[?&]q=fixture/, { timeout: 10000 });
+  const hits = page.locator("main section[aria-label] ul li a, section[aria-label] ul li a"); await hits.first().waitFor({ timeout: 10000 });
+  if (!(await hits.count())) throw Object.assign(new Error("no search hits for the seeded 'CI Fixture' rows"), { blocked: true });
+  await page.keyboard.press("Control+k"); const dlg = page.getByRole("dialog", { name: "Search" }); await dlg.waitFor({ timeout: 5000 });
+  await dlg.getByRole("textbox", { name: "Search" }).fill("fixture"); await dlg.locator("a").first().waitFor({ timeout: 10000 });
+  await page.keyboard.press("Escape"); await dlg.waitFor({ state: "detached", timeout: 5000 });
+});
+await flow("flow: settings (invalid ladder is refused, valid save persists after reload, original restored)", async (ctx) => {
+  const page = await ctx.newPage(); await page.goto(BASE + "/settings", { waitUntil: "networkidle" });
+  const name = page.locator("input[name=display_name]"), goal = page.locator("input[name=daily_goal_minutes]"), ladder = page.locator("input[name=revision_intervals]");
+  const orig = { name: await name.inputValue(), goal: await goal.inputValue(), ladder: await ladder.inputValue() };
+  const save = async () => { await page.getByRole("button", { name: "Save settings" }).click(); };
+  try {
+    await ladder.fill("7, 3, 1"); await save(); await page.getByRole("alert").filter({ hasText: /Revision ladder/ }).waitFor({ timeout: 10000 });
+    await page.reload({ waitUntil: "networkidle" }); if ((await ladder.inputValue()) !== orig.ladder) throw new Error("an invalid ladder was saved");
+    const nm = `E2E ${Date.now().toString(36)}`; await name.fill(nm); await goal.fill("95"); await ladder.fill("2, 5, 10, 20"); await save();
+    await page.getByRole("status").filter({ hasText: "Settings saved" }).waitFor({ timeout: 10000 });
+    await page.reload({ waitUntil: "networkidle" });
+    if ((await name.inputValue()) !== nm || (await goal.inputValue()) !== "95" || (await ladder.inputValue()) !== "2, 5, 10, 20") throw new Error("saved settings did not persist after a reload");
+    await page.goto(BASE + "/analytics", { waitUntil: "networkidle" }); const body = await page.locator("main").innerText();
+    if (!/goal 95 min\/day/.test(body) && !/Nothing to analyse yet/.test(body)) throw new Error("analytics did not pick up the new daily goal");
+  } finally {
+    await page.goto(BASE + "/settings", { waitUntil: "networkidle" }); await name.fill(orig.name); await goal.fill(orig.goal); await ladder.fill(orig.ladder); await save();
+    await page.getByRole("status").filter({ hasText: "Settings saved" }).waitFor({ timeout: 10000 }).catch(() => {});
+  }
+});
+await flow("flow: analytics (real numbers only: no NaN/undefined/Infinity, sections present)", async (ctx) => {
+  const page = await ctx.newPage(); await page.goto(BASE + "/analytics", { waitUntil: "networkidle" });
+  const body = await page.locator("main").innerText();
+  if (/NaN|undefined|Infinity|\[object/.test(body)) throw new Error("analytics shows a broken value: " + body.match(/NaN|undefined|Infinity|\[object/)[0]);
+  if (/Nothing to analyse yet/.test(body)) return;
+  for (const h of ["Study time, last 14 days", "Mastery", "Revision, last 30 days"]) await page.getByRole("heading", { name: h }).waitFor({ timeout: 5000 });
+  if (!(await page.getByRole("list", { name: "Minutes studied per day" }).locator("li").count() === 14)) throw new Error("the study-time chart must have exactly 14 days");
+});
+
 // ---- accessibility checks on the real app (390px)
 const a11yCtx = await flowCtx();
 if (reviewHref) { const p = await a11yCtx.newPage(); try {

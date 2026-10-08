@@ -1,5 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useFormState, useFormStatus } from "react-dom";
 import { importAction, applyImportAction, type ImportState } from "@/app/actions/import";
 import { fieldCls } from "@/components/ui/field";
@@ -22,7 +23,7 @@ export function ImportForm() {
           {rep.errors.length > 0 && <ul className="max-h-48 overflow-y-auto text-xs text-sub">{rep.errors.map((e, i) => <li key={i}>{e.kind} row {e.row}: {e.errors.map((x) => x.message).join("; ")}</li>)}</ul>}
           {rep.status === "validated" && <button type="button" disabled={pending} className="btn-ghost" onClick={() => start(async () => setApply(await applyImportAction(rep.run_id)))}>Apply as DRAFT (nothing goes live)</button>}
           {apply?.error && <p role="alert" className="text-red-400">{apply.error}</p>}
-          {apply?.applied && <p className="text-lime">Created draft content: {apply.applied.ncert} NCERT rows, {apply.applied.ssc} SSC rows, {apply.applied.mapping} mappings. Publish it from the admin tools after review.</p>}
+          {apply?.applied && <p className="text-lime">Created draft content: {apply.applied.ncert} NCERT rows, {apply.applied.ssc} SSC rows, {apply.applied.mapping} mappings. Review and publish it in <Link href="/admin" className="underline">Admin</Link>.</p>}
         </div>
       )}
     </form>

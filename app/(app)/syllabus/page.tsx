@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Layers, SearchX, Upload, Plus, ChevronRight } from "lucide-react";
+import { Layers, SearchX, Upload, Plus, ChevronRight, ShieldCheck } from "lucide-react";
 import { getSyllabus, getFilterOptions } from "@/services/curriculum";
 import { currentIsAdmin } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -20,7 +20,7 @@ export default async function Syllabus({ searchParams: sp }: { searchParams: SP 
   return (
     <div>
       <PageHeader title="Master Syllabus" subtitle="Everything you need. One place."
-        actions={<>{admin && <Link href="/admin/import" className="btn-ghost" aria-label="Import curriculum"><Upload className="h-4 w-4" /><span className="hidden sm:inline">Import</span></Link>}<Link href="/syllabus/new" className="btn-primary" aria-label="Add topic"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Add topic</span></Link></>} />
+        actions={<>{admin && <Link href="/admin" className="btn-ghost" aria-label="Admin tools"><ShieldCheck className="h-4 w-4" /><span className="hidden sm:inline">Admin</span></Link>}{admin && <Link href="/admin/import" className="btn-ghost" aria-label="Import curriculum"><Upload className="h-4 w-4" /><span className="hidden sm:inline">Import</span></Link>}<Link href="/syllabus/new" className="btn-primary" aria-label="Add topic"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Add topic</span></Link></>} />
       <SyllabusFilters options={options} />
       {items.length === 0 ? (
         filtered

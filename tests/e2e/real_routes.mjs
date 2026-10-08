@@ -151,8 +151,8 @@ await flow("flow: practice (answer, server grading, summary)", async (ctx) => {
 }, practiceHref ? null : "could not start a practice session");
 
 // ---- Phase 8 workspace flows (tasks, notes, resources): every write goes through the real UI and is read back from the server
-// Forms are submitted by React handlers: wait until the page has hydrated so a click is never a native (reloading) submit.
-const hydrated = (p) => p.waitForFunction(() => Object.keys(document).some((k) => k.startsWith("__reactContainer")), null, { timeout: 15000 });
+// Forms are submitted by React handlers: wait until React has attached its props to every form/button/link (that happens at hydration; the root marker alone appears earlier), so a click is never a native (reloading) submit.
+const hydrated = (p) => p.waitForFunction(() => { const els = [...document.querySelectorAll("form, button, a[href]")]; return els.length > 0 && els.every((e) => Object.keys(e).some((k) => k.startsWith("__reactProps"))); }, null, { timeout: 30000 });
 const uniq = (k) => `E2E ${k} ${Date.now().toString(36)}`;
 const gone = async (loc, t = 15000) => { await loc.first().waitFor({ state: "detached", timeout: t }); };
 await flow("flow: tasks (create due today -> dashboard 'Tasks due today' -> complete -> reopen -> delete only after confirmation)", async (ctx) => {
@@ -193,7 +193,7 @@ await flow("flow: notes (create on a learning item -> search -> edit -> delete a
 });
 await flow("flow: resources (official is read-only, saved link opens safely in a new tab, unsafe stored URL is not a link, delete after confirmation)", async (ctx) => {
   const page = await ctx.newPage(), title = uniq("resource"), url = `https://example.test/${Date.now().toString(36)}`;
-  await page.goto(BASE + "/resources/new", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/resources/new", { waitUntil: "networkidle" }); await hydrated(page);
   await page.locator("input[name=title]").fill(title); await page.locator("input[name=url]").fill(url); await page.locator("select[name=type]").selectOption("pdf");
   await page.getByRole("button", { name: "Save resource" }).click(); await page.waitForURL(/\/resources$/, { timeout: 15000 });
   const a = page.locator(`a[href="${url}"]`); await a.waitFor({ timeout: 10000 });

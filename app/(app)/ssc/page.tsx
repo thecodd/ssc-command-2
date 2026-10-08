@@ -6,7 +6,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
 import { Bar } from "@/components/ui/Ring";
 
-export default async function Ssc({ searchParams: sp }: { searchParams: { exam?: string; tier?: string } }) {
+export default async function Ssc(props: { searchParams: Promise<{ exam?: string; tier?: string }> }) {
+  const sp = await props.searchParams;
   const exams = await getExams();
   if (!exams.length) return <div><PageHeader title="SSC CGL" /><EmptyState icon={GraduationCap} title="No SSC syllabus yet" hint="Import a verified exam version to start drilling into subjects and topics." actions={[{ href: "/admin/import", label: "Import Curriculum" }, { href: "/syllabus/new", label: "Add Topic" }]} /></div>;
   const exam = exams.find((e) => e.id === sp.exam) ?? exams[0];

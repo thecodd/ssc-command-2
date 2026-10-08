@@ -11,7 +11,8 @@ import { ConnectionCard } from "@/components/curriculum/ConnectionCard";
 import { ActionForm } from "@/components/ui/ActionForm";
 import { updateMappingAction, deleteMappingAction } from "@/app/actions/admin";
 
-export default async function MappingDetail({ params }: { params: { id: string } }) {
+export default async function MappingDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!isUuid(params.id)) notFound();
   const [d, admin] = await Promise.all([getMappingDetail(params.id), currentIsAdmin()]);
   if (!d) notFound();

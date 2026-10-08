@@ -8,7 +8,8 @@ import { Badge, statusTone } from "@/components/ui/Badge";
 import { Bar } from "@/components/ui/Ring";
 import { PRIORITY_LABEL, STATUS_LABEL, pct } from "@/lib/format";
 
-export default async function SubjectPage({ params }: { params: { id: string } }) {
+export default async function SubjectPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!isUuid(params.id)) notFound();
   const s = await getSubjectDetail(params.id);
   if (!s) notFound();

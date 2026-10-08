@@ -9,7 +9,8 @@ import { Badge, relevanceTone } from "@/components/ui/Badge";
 import { Bar } from "@/components/ui/Ring";
 import { RELEVANCE_LABEL } from "@/lib/format";
 
-export default async function ClassPage({ params }: { params: { grade: string } }) {
+export default async function ClassPage(props: { params: Promise<{ grade: string }> }) {
+  const params = await props.params;
   const grade = Number(params.grade);
   if (!Number.isInteger(grade) || grade < 6 || grade > 12) notFound();
   const [classes, tree] = await Promise.all([getClasses(), getClassTree(grade)]);

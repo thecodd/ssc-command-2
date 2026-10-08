@@ -21,7 +21,11 @@ import { practiceNewHref } from "@/lib/practice/routes";
 
 const TABS = [["plan", "Study plan"], ["ncert", "NCERT foundation"], ["pyqs", "PYQs"], ["notes", "Notes"], ["resources", "Resources"]].map(([id, label]) => ({ id, label }));
 
-export default async function TopicPage({ params, searchParams }: { params: { id: string }; searchParams: { tab?: string } }) {
+export default async function TopicPage(
+  props: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   if (!isUuid(params.id)) notFound();
   const t = await getTopicDetail(params.id);
   if (!t) notFound();

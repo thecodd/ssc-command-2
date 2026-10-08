@@ -6,7 +6,11 @@ import { classifyError } from "@/lib/study/errors";
 import { parseBackToReview } from "@/lib/revision/routes";
 
 export const dynamic = "force-dynamic";
-export default async function PracticeSessionPage({ params, searchParams }: { params: { sessionId: string }; searchParams: { back?: string } }) {
+export default async function PracticeSessionPage(
+  props: { params: Promise<{ sessionId: string }>; searchParams: Promise<{ back?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const id = parseSessionId(params.sessionId);
   if (!id) notFound();
   let session;

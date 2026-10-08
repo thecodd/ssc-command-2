@@ -7,7 +7,8 @@ import { LinkSelect } from "@/components/workspace/LinkSelect";
 import { createNoteAction } from "@/app/actions/workspace";
 import { linkChoices, linkFor } from "@/services/workspace";
 export const dynamic = "force-dynamic";
-export default async function NewNote({ searchParams }: { searchParams: { type?: string; id?: string } }) {
+export default async function NewNote(props: { searchParams: Promise<{ type?: string; id?: string }> }) {
+  const searchParams = await props.searchParams;
   const [choices, preset] = await Promise.all([linkChoices(), linkFor(searchParams.type, searchParams.id)]);
   if (!choices.length && !preset) return <EmptyState icon={StickyNote} title="Notes belong to a chapter or topic" hint="Open something from the syllabus and start studying it; then you can write notes for it here or in Study Mode." action={{ href: "/syllabus", label: "Open the syllabus" }} />;
   return (

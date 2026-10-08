@@ -7,7 +7,10 @@ import { classifyError } from "@/lib/study/errors";
 
 export const dynamic = "force-dynamic";
 // Validate the URL BEFORE any query: unknown scope, missing/odd id, or an id on weak/mixed is a 404.
-export default async function NewPractice({ searchParams }: { searchParams: { scope?: string; id?: string; back?: string; count?: string } }) {
+export default async function NewPractice(
+  props: { searchParams: Promise<{ scope?: string; id?: string; back?: string; count?: string }> }
+) {
+  const searchParams = await props.searchParams;
   const p = parseNewParams(searchParams);
   if (!p) notFound();
   const back = parseBackToReview(searchParams.back);

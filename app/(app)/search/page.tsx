@@ -10,7 +10,8 @@ const GROUPS: { label: string; kinds: string[] }[] = [
   { label: "Notes", kinds: ["note"] }, { label: "Resources", kinds: ["resource"] }, { label: "Tasks", kinds: ["task"] },
 ];
 const STUDY: Record<string, string> = { chapter: "ncert_chapter", ssc_topic: "ssc_topic", ssc_subtopic: "ssc_subtopic" };
-export default async function SearchPage({ searchParams }: { searchParams: { q?: string } }) {
+export default async function SearchPage(props: { searchParams: Promise<{ q?: string }> }) {
+  const searchParams = await props.searchParams;
   const q = (searchParams.q ?? "").trim().slice(0, 80); const hits: SearchHit[] = q.length >= 2 ? await searchPage(q) : [];
   const groups = GROUPS.map((g) => ({ ...g, items: hits.filter((h) => g.kinds.includes(h.kind)) })).filter((g) => g.items.length);
   return (

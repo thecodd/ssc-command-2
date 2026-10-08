@@ -26,11 +26,12 @@ export function toImportData(kind: "json" | "csv", text: string): ImportData {
     const j = JSON.parse(text);
     return { source: j.source, ncert: (j.ncert ?? []).map(clean), ssc: (j.ssc ?? []).map(clean), mappings: (j.mappings ?? []).map(clean) };
   }
-  const d: ImportData = { ncert: [], ssc: [], mappings: [] };
+  const d: ImportData = { ncert: [], ssc: [], mappings: [] };   // CSV has no top-level "source": one row with type=source (columns name, source_url) names it
   for (const raw of parseCsv(text)) {
     const r = clean(raw); const type = String(r.type ?? "").toLowerCase();
-    if (type === "ncert") d.ncert.push(r); else if (type === "ssc") d.ssc.push(r); else if (type === "mapping") d.mappings.push(r);
-    else throw new Error(`Unknown row type "${r.type ?? ""}". Use ncert, ssc or mapping.`);
+    if (type === "source") { const { type: _t, ...src } = r; d.source = src; }
+    else if (type === "ncert") d.ncert.push(r); else if (type === "ssc") d.ssc.push(r); else if (type === "mapping") d.mappings.push(r);
+    else throw new Error(`Unknown row type "${r.type ?? ""}". Use source, ncert, ssc or mapping.`);
   }
   return d;
 }

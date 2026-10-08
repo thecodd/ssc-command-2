@@ -5,7 +5,8 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { fieldCls } from "@/components/ui/field";
 export const dynamic = "force-dynamic";
-export default async function Notes({ searchParams }: { searchParams: { q?: string } }) {
+export default async function Notes(props: { searchParams: Promise<{ q?: string }> }) {
+  const searchParams = await props.searchParams;
   const q = (searchParams.q ?? "").slice(0, 80), notes = await listNotes(q);
   return (
     <div>

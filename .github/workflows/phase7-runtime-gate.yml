@@ -129,6 +129,10 @@ jobs:
         if: always()
         run: node scripts/ci/scrub.mjs reports
 
+      - name: Print failing checks in the log (so a red run is diagnosable without downloading the artifact)
+        if: always()
+        run: grep -hE '^- (FAIL|BLOCKED)' reports/phase7/latest.md || echo "no FAIL/BLOCKED items in the report"
+
       - name: Publish the validation report to the job summary
         if: always()
         run: |

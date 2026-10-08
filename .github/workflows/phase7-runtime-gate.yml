@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload validation artifacts (report, SQL/migration/build logs, screenshots, traces, console logs)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: phase7-runtime-gate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |

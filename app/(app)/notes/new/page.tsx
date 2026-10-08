@@ -1,5 +1,6 @@
 import { StickyNote } from "lucide-react";
-import { ActionForm, fieldCls } from "@/components/ui/ActionForm";
+import { ActionForm } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LinkSelect } from "@/components/workspace/LinkSelect";

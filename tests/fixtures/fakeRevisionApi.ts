@@ -22,7 +22,7 @@ export function createFakeRevisionApi(o: FakeRevOptions = {}) {
     async submit(req) {
       await delay(); submits.push(req);
       const f = failures.shift(); if (f) return bad(f);
-      if (done || req.expectedStep !== step) return bad("conflict");                         // the database's expected_step guard (40001)
+      if (done || req.expectedStep !== step) return bad("conflict");                         // the database's expected_step guard (PT409)
       const n = oracle.nextReview(step, req.rating, ladder, today);
       step = n.step; done = n.graduated; dueDate = n.due; reviews++; mastery = req.rating === "hard" ? "weak" : "learning";
       if (applyThenFail) { const c = applyThenFail; applyThenFail = null; return bad(c); }  // the write LANDED but the response was lost

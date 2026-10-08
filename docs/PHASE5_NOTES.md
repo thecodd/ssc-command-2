@@ -11,7 +11,7 @@ Other new routes: `/study` (hub: resume, daily focus, weak spots), `/revision` (
 - `lib/study/sessionMachine.ts`: pure reducer. Server responses are the only source of elapsed seconds; a monotonic clock interpolates the display between responses and is never sent anywhere.
 - `lib/study/controller.ts`: orchestration without React (de-dupes in-flight ops, reconciles via `study_recover` after timeout/network/ended/not_found, heartbeat → `sync_lost`, keyed mutations). `StudyProvider` wires it to React.
 - `lib/study/api.ts`: the only surface the UI uses (`StudyApi`). `components/study/liveApi.ts` = server actions; `tests/fixtures/fakeStudyApi.ts` = in-memory fake (`mode: "fixture"` → visible banner).
-- `app/actions/study.ts`: validated server actions returning `{ok, code, error}` with our own copy. `lib/study/errors.ts` maps PG codes (P0002/55000/40001/22023/42501) to codes; raw messages never reach the UI. `lib/actions.ts safe()` got the same treatment.
+- `app/actions/study.ts`: validated server actions returning `{ok, code, error}` with our own copy. `lib/study/errors.ts` maps PG codes (P0002/55000/PT409/22023/42501) to codes; raw messages never reach the UI. `lib/actions.ts safe()` got the same treatment.
 - `services/studyContext.ts`: one `StudyContext` from real rows + RPCs. `services/study.ts`, `revision.ts`, `progress.ts`: thin RPC wrappers.
 - `lib/study/nextStep.ts`: maps server-derived state to ONE recommendation. `lib/learning/rules.ts explainMastery`: renders the server's signals as "Why this status?" and applies no thresholds.
 

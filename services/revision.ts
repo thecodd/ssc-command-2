@@ -15,7 +15,7 @@ export async function scheduleRevision(type: EntityType, id: string) {
   if (error) throw toAppError(error);
   return data as { schedule_id: string; step: number; due_date: string; reason: string };
 }
-/** expectedStep = the step the learner SAW; a stale or double submit is rejected by the database (40001 -> "conflict"). */
+/** expectedStep = the step the learner SAW; a stale or double submit is rejected by the database (PT409 -> "conflict"). */
 export async function reviewRevision(scheduleId: string, rating: Rating, expectedStep: number, confidence?: number | null) {
   const { sb } = await requireUser();
   const { data, error } = await sb.rpc("review_revision", { p_schedule: scheduleId, p_rating: rating, p_expected_step: expectedStep, p_confidence: confidence ?? null });

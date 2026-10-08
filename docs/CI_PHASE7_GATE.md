@@ -1,6 +1,6 @@
 # Phase 7 runtime gate in CI
 
-**Status: NOT EXECUTED in this repository's sandbox.** The workflow and Docker fallback were validated statically and through unit tests of their scripts (`npm run test:kit`). No GitHub runner has run them yet. Until a real run is green, the project stays **NOT READY FOR PHASE 8**.
+**Status: the kit this workflow runs was executed end to end on 2026-10-08 against the same images (READY FOR PHASE 8, see docs/PHASE7_RUNTIME_VALIDATION.md); the workflow file itself has not run on a GitHub runner yet.** Earlier status: The workflow and Docker fallback were validated statically and through unit tests of their scripts (`npm run test:kit`). No GitHub runner has run them yet. Until a real run is green, the project stays **NOT READY FOR PHASE 8**.
 
 `.github/workflows/phase7-runtime-gate.yml` provisions a clean environment and runs the repository's validation kit (`scripts/validate_phase7.mjs`) against a real PostgreSQL. The workflow contains **no gate logic of its own**: provisioning only, then one command.
 
@@ -52,7 +52,7 @@ Environmental failures are never turned into PASS: a missing prerequisite is `BL
 No secret is committed. `PG_PASSWORD` and the generated values are masked in logs and scrubbed from text artifacts. Playwright traces of the flows can contain the CI user's throwaway password and the throwaway anon key; both die with the job's stack. The login context itself is not traced.
 
 ## Lockfile
-The repository has no `package-lock.json` (it could not be generated without registry access). The first run uses `npm install` and uploads the generated lockfile as part of the artifact: commit it, after which the workflow uses `npm ci`.
+`package-lock.json` is committed (generated 2026-10-08), so the workflow uses `npm ci`.
 
 ## Local fallback (Docker, secondary)
 ```

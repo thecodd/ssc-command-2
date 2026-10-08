@@ -251,7 +251,8 @@ begin
   select * into s from public.revision_schedule where id = p_schedule and user_id = v_uid for update;
   if not found then raise exception 'Revision not found' using errcode = 'P0002'; end if;
   if s.done then raise exception 'This revision is already complete' using errcode = '55000'; end if;
-  if s.step is distinct from p_expected_step then raise exception 'This revision changed. Refresh and try again' using errcode = '40001'; end if;
+  -- PT409, not 40001: PostgREST retries serialization failures (40001) on its own, so a stale submit raised as 40001 is re-run forever and the request never returns.
+  if s.step is distinct from p_expected_step then raise exception 'This revision changed. Refresh and try again' using errcode = 'PT409'; end if;
 
   v_ladder := public._ladder(v_uid);
   select * into n from public.revision_next(s.step, p_rating, v_ladder, v_today);

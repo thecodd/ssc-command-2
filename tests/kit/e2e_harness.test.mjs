@@ -32,6 +32,11 @@ test("network filter: ONLY GET ?_rsc= aborts and navigation/close-aborted server
   assert.equal(C({ ...act, startedAt: 25, failedAt: 30, lastNavigationAt: 20 }).kind, "unexpected", "an action started AFTER the navigation was not cancelled by it");
   assert.equal(C({ ...act, headers: {}, closing: true }).kind, "unexpected", "a plain POST (not a server action) is never tolerated");
   assert.equal(C({ ...act, errorText: "net::ERR_EMPTY_RESPONSE", closing: true }).kind, "unexpected");
+  // CDP can report ERR_ABORTED for a server action whose body the page read to the end: tolerated ONLY with that in-page proof
+  assert.equal(C({ ...act, bodyDelivered: true }).reason, "action-abort-after-body-delivered");
+  assert.equal(C({ ...act, bodyDelivered: false }).kind, "unexpected", "an action whose body the app did not fully receive stays a defect");
+  assert.equal(C({ ...act, headers: {}, bodyDelivered: true }).kind, "unexpected", "body proof never excuses a plain POST");
+  assert.equal(C({ ...act, errorText: "net::ERR_CONNECTION_RESET", bodyDelivered: true }).kind, "unexpected", "body proof only covers ERR_ABORTED");
 });
 test("network filter is wired into the route checks; HTTP >= 400, pageerror, hydration, login redirect, overflow and clipping are still reported", () => {
   const s = read("tests/e2e/real_routes.mjs");

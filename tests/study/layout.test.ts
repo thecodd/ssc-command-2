@@ -55,7 +55,9 @@ export default async function () {
     assert.deepEqual(bad.filter((b) => !/lg:grid-cols/.test(b)), []);
   });
   await t("layout: text inputs are 16px on phones (no iOS zoom) and sheets cap their height", () => {
-    assert.match(read("components/ui/ActionForm.tsx"), /text-base[^"]*lg:text-sm/);
+    assert.match(read("components/ui/field.ts"), /text-base[^"]*lg:text-sm/);
+    // a plain value exported from a "use client" module reaches server components as a client reference (class="[object Object]")
+    assert.doesNotMatch(read("components/ui/ActionForm.tsx"), /export const fieldCls/); assert.doesNotMatch(read("components/ui/field.ts"), /^\s*["']use client["']/m);
     assert.match(read("components/ui/Sheet.tsx"), /max-h-\[88dvh\]/); assert.match(read("components/ui/Sheet.tsx"), /safe-area-inset-bottom/);
   });
 }

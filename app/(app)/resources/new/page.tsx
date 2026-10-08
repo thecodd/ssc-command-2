@@ -1,4 +1,5 @@
-import { ActionForm, fieldCls } from "@/components/ui/ActionForm";
+import { ActionForm } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { LinkSelect } from "@/components/workspace/LinkSelect";
 import { createResourceAction } from "@/app/actions/workspace";

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ActionForm, fieldCls } from "@/components/ui/ActionForm";
+import { ActionForm } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { DeleteButton } from "@/components/workspace/RowActions";
 import { editNoteAction } from "@/app/actions/workspace";

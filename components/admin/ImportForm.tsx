@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { importAction, applyImportAction, type ImportState } from "@/app/actions/import";
-import { fieldCls } from "@/components/ui/ActionForm";
+import { fieldCls } from "@/components/ui/field";
 function Btn() { const { pending } = useFormStatus(); return <button disabled={pending} className="btn-primary disabled:opacity-60">{pending ? "Checking..." : "Validate file"}</button>; }
 export function ImportForm() {
   const [s, action] = useFormState<ImportState, FormData>(importAction, null);

@@ -7,3 +7,9 @@ reports/
 tests/browser/dist/
 *.tsbuildinfo
 next-env.d.ts
+
+# local deploy artifacts
+supabase/.temp/
+supabase/migrations/
+.vercel/
+.sb-project.json

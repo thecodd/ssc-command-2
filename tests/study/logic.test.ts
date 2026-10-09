@@ -79,7 +79,7 @@ export default async function () {
   });
   await t("production code never imports fixtures (except the dev-only preview route)", () => {
     const bad: string[] = [];
-    (function walk(d: string) { for (const f of fs.readdirSync(d)) { if (["node_modules", ".next", ".git", "tests"].includes(f)) continue; const p = path.join(d, f); if (fs.statSync(p).isDirectory()) walk(p); else if (/\.tsx?$/.test(f) && /@\/tests\//.test(fs.readFileSync(p, "utf8")) && !p.includes("dev/study-preview") && !p.includes("dev/revision-preview")) bad.push(p); } })(path.join(__dirname, "../.."));
+    (function walk(d: string) { for (const f of fs.readdirSync(d)) { if (["node_modules", ".next", ".git", "tests"].includes(f)) continue; const p = path.join(d, f); if (fs.statSync(p).isDirectory()) walk(p); else if (/\.tsx?$/.test(f) && /@\/tests\//.test(fs.readFileSync(p, "utf8")) && !p.split(path.sep).join("/").includes("dev/study-preview") && !p.split(path.sep).join("/").includes("dev/revision-preview")) bad.push(p); } })(path.join(__dirname, "../.."));
     assert.deepEqual(bad, []);
   });
 }

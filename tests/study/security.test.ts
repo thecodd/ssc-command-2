@@ -125,7 +125,7 @@ export default async function () {
     assert.ok(fs.existsSync(path.join(root, "app/(focus)/dev/study-preview/page.dev.tsx")));
     assert.ok(!fs.existsSync(path.join(root, "app/(focus)/dev/study-preview/page.tsx")));
     const importers: string[] = [];
-    (function walk(d: string) { for (const f of fs.readdirSync(d)) { if (["node_modules", ".next", ".git", "tests", "database", "docs"].includes(f)) continue; const p = path.join(d, f); if (fs.statSync(p).isDirectory()) walk(p); else if (/\.tsx?$/.test(f) && /@\/tests\//.test(fs.readFileSync(p, "utf8"))) importers.push(path.relative(root, p)); } })(root);
+    (function walk(d: string) { for (const f of fs.readdirSync(d)) { if (["node_modules", ".next", ".git", "tests", "database", "docs"].includes(f)) continue; const p = path.join(d, f); if (fs.statSync(p).isDirectory()) walk(p); else if (/\.tsx?$/.test(f) && /@\/tests\//.test(fs.readFileSync(p, "utf8"))) importers.push(path.relative(root, p).split(path.sep).join("/")); } })(root);
     assert.deepEqual(importers.sort(), ["app/(focus)/dev/revision-preview/page.dev.tsx", "app/(focus)/dev/study-preview/page.dev.tsx"]);
   });
   await t("014: assertions compare RESOLVED OIDs, not regprocedure text (the first real run failed on text normalisation)", () => {

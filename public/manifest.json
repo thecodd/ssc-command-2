@@ -1,2 +1,9 @@
-{ "name": "CGL Command", "short_name": "CGL Command", "description": "Your complete SSC CGL preparation system", "start_url": "/dashboard", "display": "standalone", "background_color": "#09090B", "theme_color": "#09090B",
-  "icons": [ { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }, { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" } ] }
+{ "id": "/dashboard", "name": "CGL Command", "short_name": "CGL Command", "description": "Your complete SSC CGL preparation system", "start_url": "/dashboard", "scope": "/", "display": "standalone", "orientation": "portrait", "background_color": "#09090B", "theme_color": "#09090B", "categories": ["education"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" } ],
+  "shortcuts": [
+    { "name": "Revision", "url": "/revision", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Practice", "url": "/practice/new?scope=mixed", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] } ] }

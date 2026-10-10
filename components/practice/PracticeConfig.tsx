@@ -4,6 +4,7 @@ import { useContext, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Target } from "lucide-react";
 import { availableFilters, buildStartRequest, DEFAULT_COUNT } from "@/lib/practice/config";
+import { clock, mockSeconds } from "@/lib/practice/mock";
 import { practiceSessionHref } from "@/lib/practice/routes";
 import type { Difficulty, PracticeOptions, PracticeScope } from "@/types/practice";
 import { PracticeApiCtx } from "./PracticeApiContext";
@@ -16,13 +17,13 @@ export function PracticeConfig({ scope, scopeId, info, options, backTo = null, i
   const api = useContext(PracticeApiCtx), router = useRouter();
   const f = availableFilters(options);
   const [count, setCount] = useState<number>(initialCount ?? DEFAULT_COUNT), [difficulty, setDifficulty] = useState<string | null>(null), [paper, setPaper] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  const [timed, setTimed] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const lock = useRef(false);
   const req = buildStartRequest(scope, scopeId, options, { count, difficulty, paper });
   const start = async () => {
     if (lock.current) return; lock.current = true; setBusy(true); setError(null);
     const r = await api.start(req);
-    if (r.ok) router.push(practiceSessionHref(r.data.id, backTo)); else { setError(r.error); setBusy(false); lock.current = false; }
+    if (r.ok) router.push(practiceSessionHref(r.data.id, backTo, timed)); else { setError(r.error); setBusy(false); lock.current = false; }
   };
   const has = f.counts.length > 0 || f.difficulties.length > 0 || f.papers.length > 0;
   return (
@@ -36,6 +37,7 @@ export function PracticeConfig({ scope, scopeId, info, options, backTo = null, i
       ) : (
         <>
           <p className="mt-2 text-sm text-sub"><span className="tabular-nums text-ink">{options.total}</span> {options.total === 1 ? "question" : "questions"} available. You&apos;ll get {req.count}, newest gaps first.</p>
+          <label className="mt-4 flex min-h-[44px] items-center gap-3 text-sm text-sub"><input type="checkbox" checked={timed} onChange={(e) => setTimed(e.target.checked)} className="h-6 w-6 shrink-0 accent-lime" />Timed mock: {clock(mockSeconds(req.count))} total (exam pace, 36 s per question)</label>
           <button type="button" onClick={() => void start()} disabled={busy} className="btn-primary mt-6 w-full disabled:opacity-60">{busy ? "Starting…" : VERB[scope]}</button>
           {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
           {has && (

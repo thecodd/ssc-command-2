@@ -1,13 +1,14 @@
 import { notFound } from "next/navigation";
 import { getPracticeState, getScopeInfo } from "@/services/practice";
 import { PracticeRunner } from "@/components/practice/PracticeRunner";
+import { parseTimed } from "@/lib/practice/mock";
 import { parseSessionId } from "@/lib/practice/routes";
 import { classifyError } from "@/lib/study/errors";
 import { parseBackToReview } from "@/lib/revision/routes";
 
 export const dynamic = "force-dynamic";
 export default async function PracticeSessionPage(
-  props: { params: Promise<{ sessionId: string }>; searchParams: Promise<{ back?: string }> }
+  props: { params: Promise<{ sessionId: string }>; searchParams: Promise<{ back?: string; timed?: string }> }
 ) {
   const searchParams = await props.searchParams;
   const params = await props.params;
@@ -19,5 +20,5 @@ export default async function PracticeSessionPage(
   const info = (session.scope_id || session.scope_type === "weak" || session.scope_type === "mixed" ? await getScopeInfo(session.scope_type, session.scope_id).catch(() => null) : null)
     ?? { title: "Practice", kicker: "Practice", backHref: "/study", backLabel: "Back to Study" };
   const back = parseBackToReview(searchParams.back);
-  return <PracticeRunner session={session} info={back ? { ...info, backHref: back, backLabel: "Back to revision" } : info} returnToReview={!!back} />;
+  return <PracticeRunner session={session} info={back ? { ...info, backHref: back, backLabel: "Back to revision" } : info} returnToReview={!!back} timed={parseTimed(searchParams.timed)} />;
 }

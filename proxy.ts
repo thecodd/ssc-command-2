@@ -44,4 +44,4 @@ export async function proxy(req: NextRequest) {
   return res;
 }
 // Skipped on purpose: Next build assets, icons, manifest, service worker, and the public sample import files.
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.json|robots.txt|sw.js|icons/|samples/).*)"] };
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.json|robots.txt|sw.js|offline.html|icons/|samples/).*)"] };

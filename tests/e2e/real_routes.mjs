@@ -164,6 +164,27 @@ await flow("flow: practice (answer, server grading, summary)", async (ctx) => {
   await expectText(page, /Session summary/, 15000);
 }, practiceHref ? null : "could not start a practice session");
 
+await flow("flow: timed mock (navigate, change an answer, flag, submit, server score, review)", async (ctx) => {
+  const page = await ctx.newPage(); await page.goto(BASE + "/practice/new?scope=mixed", { waitUntil: "networkidle" });
+  await page.getByRole("checkbox", { name: /Timed mock/ }).check();
+  await page.getByRole("button", { name: /^(start|practice)/i }).first().click();
+  await page.waitForURL(/\/practice\/[0-9a-f-]{36}\?timed=1/, { timeout: 15000 });
+  await page.getByRole("timer", { name: "Time left" }).waitFor({ timeout: 15000 });
+  const click = async (n) => { const r = page.getByRole("radio").nth(n); await r.waitFor({ state: "attached", timeout: 15000 }); await page.locator("label").filter({ has: r }).first().click(); if (!(await r.isChecked())) throw new Error(`option ${n} not selected`); };
+  await click(0); await click(1);                                      // change the answer before submitting
+  await page.getByRole("button", { name: "Flag for review" }).click(); await page.getByRole("button", { name: "Unflag" }).waitFor();
+  const total = await page.getByRole("navigation", { name: "Question navigator" }).getByRole("button").count();
+  if (total > 1) {
+    await page.getByRole("button", { name: "Next", exact: true }).click(); await click(0);
+    await page.getByRole("button", { name: "Previous", exact: true }).click();
+    if (!(await page.getByRole("radio").nth(1).isChecked())) throw new Error("the changed answer was not kept when navigating back");
+  }
+  await page.getByRole("button", { name: "Submit test" }).click(); await expectText(page, /Submit the test\?/);
+  await page.getByRole("button", { name: /Submit and see score/ }).click();
+  await page.getByRole("heading", { name: /Session summary/ }).waitFor({ timeout: 30000 });
+  await page.getByRole("heading", { name: "Review", exact: true }).waitFor({ timeout: 15000 });
+}, practiceHref ? null : "could not start a practice session");
+
 // ---- Phase 8 workspace flows (tasks, notes, resources): every write goes through the real UI and is read back from the server
 const uniq = (k) => `E2E ${k} ${Date.now().toString(36)}`;
 const gone = async (loc, t = 15000) => { await loc.first().waitFor({ state: "detached", timeout: t }); };

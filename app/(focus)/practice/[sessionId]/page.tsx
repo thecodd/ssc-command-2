@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getPracticeState, getScopeInfo } from "@/services/practice";
+import { MockRunner } from "@/components/practice/MockRunner";
 import { PracticeRunner } from "@/components/practice/PracticeRunner";
 import { parseTimed } from "@/lib/practice/mock";
 import { parseSessionId } from "@/lib/practice/routes";
@@ -20,5 +21,7 @@ export default async function PracticeSessionPage(
   const info = (session.scope_id || session.scope_type === "weak" || session.scope_type === "mixed" ? await getScopeInfo(session.scope_type, session.scope_id).catch(() => null) : null)
     ?? { title: "Practice", kicker: "Practice", backHref: "/study", backLabel: "Back to Study" };
   const back = parseBackToReview(searchParams.back);
-  return <PracticeRunner session={session} info={back ? { ...info, backHref: back, backLabel: "Back to revision" } : info} returnToReview={!!back} timed={parseTimed(searchParams.timed)} />;
+  const runnerInfo = back ? { ...info, backHref: back, backLabel: "Back to revision" } : info;
+  if (parseTimed(searchParams.timed) && !back) return <MockRunner session={session} info={runnerInfo} />;
+  return <PracticeRunner session={session} info={runnerInfo} returnToReview={!!back} />;
 }

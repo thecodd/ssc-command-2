@@ -6,7 +6,6 @@ import { createPracticeController } from "@/lib/practice/controller";
 import { initialPState, isLast, reduce, type PAction } from "@/lib/practice/machine";
 import { summaryView } from "@/lib/practice/summary";
 import type { PracticeSession } from "@/types/practice";
-import { clock as mockClock, ensureDeadline, mockSeconds, remainingSeconds } from "@/lib/practice/mock";
 import { clockText } from "@/lib/study/sessionMachine";
 import { PracticeApiCtx } from "./PracticeApiContext";
 import { QuestionView } from "./QuestionView";
@@ -16,7 +15,7 @@ const mono = () => (typeof performance !== "undefined" ? performance.now() : Dat
 export interface RunnerInfo { title: string; kicker: string; backHref: string; backLabel: string }
 
 /** The focused question flow. Order, grading, answer key and the summary come from the server; this component sequences the screens. */
-export function PracticeRunner({ session, info, returnToReview = false, timed = false }: { session: PracticeSession; info: RunnerInfo; returnToReview?: boolean; timed?: boolean }) {
+export function PracticeRunner({ session, info, returnToReview = false }: { session: PracticeSession; info: RunnerInfo; returnToReview?: boolean }) {
   const api = useContext(PracticeApiCtx);
   const [s, raw] = useReducer(reduce, session, initialPState);
   const ref = useRef(s);
@@ -30,16 +29,6 @@ export function PracticeRunner({ session, info, returnToReview = false, timed = 
   const timing = showTimer && (s.phase === "ready" || s.phase === "submitting");
   useEffect(() => { if (!timing) return; setNow(mono()); const t = setInterval(() => setNow(mono()), 1000); return () => clearInterval(t); }, [timing, s.shownAt]);
 
-  // timed mock: overall countdown from a persisted deadline; at zero the session is finished (unanswered questions simply stay unanswered)
-  const mockOn = timed && !s.summary;
-  const [left, setLeft] = useState<number | null>(null);
-  useEffect(() => {
-    if (!mockOn) return;
-    const deadline = ensureDeadline(session.id, mockSeconds(session.total), Date.now());
-    const tick = () => { const r = remainingSeconds(deadline, Date.now()); setLeft(r); if (r === 0) void ctl.finish(); };
-    tick(); const t = setInterval(tick, 1000); return () => clearInterval(t);
-  }, [mockOn, session.id, session.total, ctl]);
-
   const done = s.session.answered.length, total = s.session.total;
   const busy = s.phase === "submitting" || s.phase === "finishing";
   const view = s.summary ? summaryView(s.summary, { href: info.backHref, label: info.backLabel }, returnToReview) : null;
@@ -50,7 +39,6 @@ export function PracticeRunner({ session, info, returnToReview = false, timed = 
         <div className="mx-auto flex max-w-2xl items-center gap-3 px-3 py-2 sm:px-4">
           <Link href={info.backHref} className="-ml-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-ctl px-2 text-sm text-sub hover:text-ink"><ArrowLeft className="h-4 w-4" aria-hidden />Exit</Link>
           <div className="min-w-0 flex-1"><p className="truncate text-[11px] uppercase tracking-widest text-mute">{info.kicker}</p>{view ? <p className="truncate text-sm font-medium">{info.title}</p> : <h1 className="truncate text-sm font-medium">{info.title}</h1>}</div>
-          {mockOn && left !== null && <span role="timer" aria-label="Time left" className={`rounded-ctl px-2 py-1 text-sm font-medium tabular-nums ${left <= 60 ? "bg-red-500/15 text-red-300" : "text-sub"}`}>{mockClock(left)}</span>}
           {!view && <button type="button" aria-pressed={showTimer} onClick={() => setShowTimer((v) => !v)} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-ctl px-2 text-sm text-sub hover:text-ink" aria-label="Show question timer">
             <Timer className="h-4 w-4" aria-hidden />{timing ? <span className="tabular-nums" role="timer" aria-live="off">{clockText(Math.max(0, Math.floor((now - s.shownAt) / 1000)))}</span> : null}</button>}
         </div>

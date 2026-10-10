@@ -166,7 +166,7 @@ await flow("flow: practice (answer, server grading, summary)", async (ctx) => {
 
 await flow("flow: timed mock (navigate, change an answer, flag, submit, server score, review)", async (ctx) => {
   const page = await ctx.newPage(); await page.goto(BASE + "/practice/new?scope=mixed", { waitUntil: "networkidle" });
-  await page.getByRole("checkbox", { name: /Timed mock/ }).check();
+  const timed = page.getByRole("checkbox", { name: /Timed mock/ }); await timed.click(); if (!(await timed.isChecked())) throw new Error("the Timed mock checkbox did not turn on");
   await page.getByRole("button", { name: /^(start|practice)/i }).first().click();
   await page.waitForURL(/\/practice\/[0-9a-f-]{36}\?timed=1/, { timeout: 15000 });
   await page.getByRole("timer", { name: "Time left" }).waitFor({ timeout: 15000 });

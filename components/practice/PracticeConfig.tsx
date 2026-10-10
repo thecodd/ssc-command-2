@@ -37,7 +37,7 @@ export function PracticeConfig({ scope, scopeId, info, options, backTo = null, i
       ) : (
         <>
           <p className="mt-2 text-sm text-sub"><span className="tabular-nums text-ink">{options.total}</span> {options.total === 1 ? "question" : "questions"} available. You&apos;ll get {req.count}, newest gaps first.</p>
-          <label className="mt-4 flex min-h-[44px] items-center gap-3 text-sm text-sub"><input type="checkbox" checked={timed} onChange={(e) => setTimed(e.target.checked)} className="h-5 w-5 accent-lime" />Timed mock: {clock(mockSeconds(req.count))} total (exam pace, 36 s per question)</label>
+          <label className="mt-4 flex min-h-[44px] items-center gap-3 text-sm text-sub"><input type="checkbox" checked={timed} onChange={(e) => setTimed(e.target.checked)} className="h-6 w-6 shrink-0 accent-lime" />Timed mock: {clock(mockSeconds(req.count))} total (exam pace, 36 s per question)</label>
           <button type="button" onClick={() => void start()} disabled={busy} className="btn-primary mt-6 w-full disabled:opacity-60">{busy ? "Starting…" : VERB[scope]}</button>
           {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
           {has && (

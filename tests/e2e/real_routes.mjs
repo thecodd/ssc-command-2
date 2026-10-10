@@ -170,7 +170,7 @@ await flow("flow: timed mock (navigate, change an answer, flag, submit, server s
   await page.getByRole("button", { name: /^(start|practice)/i }).first().click();
   await page.waitForURL(/\/practice\/[0-9a-f-]{36}\?timed=1/, { timeout: 15000 });
   await page.getByRole("timer", { name: "Time left" }).waitFor({ timeout: 15000 });
-  const click = async (n) => { const r = page.getByRole("radio").nth(n); await r.waitFor({ state: "attached", timeout: 15000 }); await page.locator("label").filter({ has: r }).first().click(); if (!(await r.isChecked())) throw new Error(`option ${n} not selected`); };
+  const click = async (n) => { const r = page.getByRole("radio").nth(n); await r.waitFor({ state: "attached", timeout: 15000 }); await page.locator("label:has(input[type=radio])").nth(n).click(); if (!(await r.isChecked())) throw new Error(`option ${n} not selected`); };
   await click(0); await click(1);                                      // change the answer before submitting
   await page.getByRole("button", { name: "Flag for review" }).click(); await page.getByRole("button", { name: "Unflag" }).waitFor();
   const total = await page.getByRole("navigation", { name: "Question navigator" }).getByRole("button").count();
